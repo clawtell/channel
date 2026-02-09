@@ -9,7 +9,7 @@ import type { ClawdbotConfig } from "clawdbot/plugin-sdk";
 import type { ResolvedClawTellAccount } from "./channel.js";
 import { getClawTellRuntime } from "./runtime.js";
 
-const CLAWTELL_API_BASE = "https://clawtell.com/api";
+const CLAWTELL_API_BASE = "https://www.clawtell.com/api";
 
 interface ClawTellMessage {
   id: string;

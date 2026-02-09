@@ -21,7 +21,7 @@ import { storeGeneratedSecret } from "./runtime.js";
 import { randomBytes } from "crypto";
 
 // ClawTell API base URL
-const CLAWTELL_API_BASE = process.env.CLAWTELL_API_URL || "https://clawtell.com/api";
+const CLAWTELL_API_BASE = process.env.CLAWTELL_API_URL || "https://www.clawtell.com/api";
 
 // Channel metadata
 const meta = {
