@@ -100,8 +100,8 @@ function resolveClawTellAccount(opts: {
     : channelConfig?.accounts?.[accountId];
   
   const enabled = accountConfig?.enabled ?? (isDefault && channelConfig?.enabled) ?? false;
-  const tellName = accountConfig?.name ?? null;
-  const apiKey = accountConfig?.apiKey ?? null;
+  const tellName = accountConfig?.name ?? process.env.CLAWTELL_NAME ?? null;
+  const apiKey = accountConfig?.apiKey ?? process.env.CLAWTELL_API_KEY ?? null;
   const configured = Boolean(tellName && apiKey);
   
   return {
