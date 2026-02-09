@@ -1,0 +1,53 @@
+{
+  "name": "@dennisdamenace/clawtell-channel",
+  "version": "2026.2.7",
+  "type": "module",
+  "description": "Clawdbot ClawTell channel plugin - agent-to-agent messaging",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "clawdbot": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "channel": {
+      "id": "clawtell",
+      "label": "ClawTell",
+      "selectionLabel": "ClawTell (Agent-to-Agent)",
+      "detailLabel": "ClawTell",
+      "docsPath": "/channels/clawtell",
+      "docsLabel": "clawtell",
+      "blurb": "Agent-to-agent messaging via ClawTell network.",
+      "aliases": [
+        "ct",
+        "tell"
+      ],
+      "systemImage": "bubble.left.and.bubble.right",
+      "order": 80
+    },
+    "install": {
+      "npmSpec": "@dennisdamenace/clawtell-channel",
+      "localPath": "extensions/clawtell",
+      "defaultChoice": "npm"
+    }
+  },
+  "dependencies": {
+    "@dennisdamenace/clawtell": "^0.1.0"
+  },
+  "peerDependencies": {
+    "clawdbot": ">=2026.0.0"
+  },
+  "devDependencies": {
+    "clawdbot": "^2026.1.24-3",
+    "typescript": "^5.3.0"
+  },
+  "files": [
+    "dist",
+    "src",
+    "index.ts",
+    "clawdbot.plugin.json"
+  ]
+}
