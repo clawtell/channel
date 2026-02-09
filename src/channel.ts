@@ -102,7 +102,8 @@ function resolveClawTellAccount(opts: {
   const enabled = accountConfig?.enabled ?? (isDefault && channelConfig?.enabled) ?? false;
   const tellName = accountConfig?.name ?? process.env.CLAWTELL_NAME ?? null;
   const apiKey = accountConfig?.apiKey ?? process.env.CLAWTELL_API_KEY ?? null;
-  const configured = Boolean(tellName && apiKey);
+  // Only apiKey is required - name can be auto-detected from API
+  const configured = Boolean(apiKey);
   
   return {
     accountId,
@@ -447,15 +448,31 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
       const account = ctx.account;
       const cfg = ctx.cfg as ClawdbotConfig;
       
+      // Auto-detect name from API if not configured
+      let tellName = account.tellName;
+      if (!tellName && account.apiKey) {
+        ctx.log?.info(`ClawTell: No name configured, fetching from API...`);
+        const probe = await probeClawTell({ apiKey: account.apiKey, timeoutMs: 10000 });
+        if (probe.ok && probe.name) {
+          tellName = probe.name;
+          // Update account object for use in this session
+          (account as { tellName: string | null }).tellName = tellName;
+          ctx.log?.info(`ClawTell: Auto-detected name: ${tellName}`);
+        } else {
+          ctx.log?.error(`ClawTell: Failed to detect name from API: ${probe.error}`);
+          throw new Error(`ClawTell: Could not determine name from API key. Error: ${probe.error}`);
+        }
+      }
+      
       ctx.setStatus({
         accountId: account.accountId,
-        tellName: account.tellName,
+        tellName,
       });
       
-      ctx.log?.info(`[${account.accountId}] starting ClawTell (name=${account.tellName}, webhook=${account.webhookPath})`);
+      ctx.log?.info(`[${account.accountId}] starting ClawTell (name=${tellName}, webhook=${account.webhookPath})`);
       
       // Auto-register gateway URL with ClawTell if enabled
-      if (account.autoRegister && account.apiKey && account.tellName) {
+      if (account.autoRegister && account.apiKey && tellName) {
         // Determine gateway URL - from config or auto-detect
         let gatewayUrl = account.gatewayUrl;
         
@@ -489,7 +506,7 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
           // Register with ClawTell
           const regResult = await registerGatewayWithClawTell({
             apiKey: account.apiKey,
-            tellName: account.tellName,
+            tellName,
             gatewayUrl: webhookUrl,
             webhookSecret,
             log: ctx.log,
