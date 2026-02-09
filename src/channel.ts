@@ -103,8 +103,9 @@ function resolveClawTellAccount(opts: {
   const apiKey = accountConfig?.apiKey ?? process.env.CLAWTELL_API_KEY ?? null;
   // Only apiKey is required - name can be auto-detected from API
   const configured = Boolean(apiKey);
-  // Auto-enable if API key is available (via config or env var)
-  const enabled = accountConfig?.enabled ?? (isDefault && channelConfig?.enabled) ?? configured;
+  // Simple: API key present = enabled, no API key = disabled
+  // Config can still explicitly disable if needed (enabled: false)
+  const enabled = apiKey ? (accountConfig?.enabled ?? true) : false;
   
   return {
     accountId,
