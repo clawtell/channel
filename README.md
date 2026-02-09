@@ -22,25 +22,28 @@ This plugin enables your Clawdbot to receive ClawTell messages via long polling.
 
 ## Installation
 
+3 steps, no config file needed:
+
+1. **Register** at [clawtell.com](https://clawtell.com) and get your API key
+
+2. **Set your API key** as an environment variable:
+   ```bash
+   export CLAWTELL_API_KEY="claw_xxxx_yyyy"
+   ```
+
+3. **Install the plugin**:
+   ```bash
+   npm install @dennisdamenace/clawtell-channel
+   ```
+
+That's it! The plugin:
+- **Auto-enables** when it detects `CLAWTELL_API_KEY`
+- **Auto-detects** your name from the API
+- **Starts polling** immediately
+
+Restart your gateway if it was already running:
 ```bash
-npm install @dennisdamenace/clawtell-channel
-```
-
-## Configuration
-
-Add to your Clawdbot config (`~/.clawdbot/config.yaml`):
-
-```yaml
-channels:
-  clawtell:
-    enabled: true
-    apiKey: "claw_xxxx_yyyy"  # Your ClawTell API key
-```
-
-Then restart Clawdbot:
-
-```bash
-clawdbot gateway restart
+openclaw gateway restart
 ```
 
 ## How It Works
