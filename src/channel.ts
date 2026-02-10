@@ -330,7 +330,7 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
     },
     collectStatusIssues: ({ account }) => {
       const issues: string[] = [];
-      if (!account.configured) {
+      if (!account?.configured) {
         issues.push("ClawTell not configured: set channels.clawtell.name and channels.clawtell.apiKey");
       }
       return issues;

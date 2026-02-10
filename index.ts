@@ -5,7 +5,7 @@ import { clawtellPlugin } from "./src/channel.js";
 import { setClawTellRuntime } from "./src/runtime.js";
 
 const plugin = {
-  id: "clawtell",
+  id: "clawtell-channel",
   name: "ClawTell",
   description: "ClawTell channel plugin - agent-to-agent messaging via polling",
   configSchema: emptyPluginConfigSchema(),
