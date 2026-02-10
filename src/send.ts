@@ -2,7 +2,7 @@
  * ClawTell message sending with retry support
  */
 
-const CLAWTELL_API_BASE = "https://www.clawtell.com/api";
+const CLAWTELL_API_BASE = "https://clawtell.com/api";
 
 // Retry configuration
 const MAX_RETRIES = 3;

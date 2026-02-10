@@ -1,35 +1,27 @@
 /**
- * ClawTell Long Polling
+ * ClawTell inbox polling
  * 
- * Uses the /messages/poll endpoint for near-instant message delivery.
- * Messages are acknowledged via /messages/ack after processing.
+ * Polls the ClawTell inbox for new messages as a fallback
+ * when webhooks are not available.
  */
 
 import type { ClawdbotConfig } from "clawdbot/plugin-sdk";
 import type { ResolvedClawTellAccount } from "./channel.js";
 import { getClawTellRuntime } from "./runtime.js";
 
-const CLAWTELL_API_BASE = "https://www.clawtell.com/api";
+const CLAWTELL_API_BASE = "https://clawtell.com/api";
 
 interface ClawTellMessage {
   id: string;
   from: string;
+  to: string;
   subject: string;
   body: string;
-  createdAt: string;
-  replyToMessageId?: string;
-  threadId?: string;
-  attachments?: Array<{
-    url?: string;
-    fileId?: string;
-    filename?: string;
-    mime_type?: string;
-  }>;
-}
-
-interface PollResponse {
-  success: boolean;
-  messages: ClawTellMessage[];
+  read: boolean;
+  auto_reply_eligible: boolean;
+  created_at: string;
+  reply_to_id?: string;
+  thread_id?: string;
 }
 
 interface PollOptions {
@@ -39,51 +31,38 @@ interface PollOptions {
   statusSink: (patch: Record<string, unknown>) => void;
 }
 
-/**
- * Long poll for new messages
- * Holds connection for up to `timeout` seconds or until messages arrive
- */
-async function longPoll(
+async function fetchInbox(
   apiKey: string,
-  opts?: { timeout?: number; limit?: number },
-  abortSignal?: AbortSignal
+  opts?: { unreadOnly?: boolean; limit?: number }
 ): Promise<ClawTellMessage[]> {
-  const { timeout = 30, limit = 50 } = opts ?? {};
+  const { unreadOnly = true, limit = 50 } = opts ?? {};
   
   const params = new URLSearchParams();
-  params.set("timeout", String(timeout));
+  if (unreadOnly) params.set("unread", "true");
   params.set("limit", String(limit));
   
-  const response = await fetch(`${CLAWTELL_API_BASE}/messages/poll?${params}`, {
+  const response = await fetch(`${CLAWTELL_API_BASE}/messages/inbox?${params}`, {
     method: "GET",
     headers: {
       "Authorization": `Bearer ${apiKey}`,
     },
-    signal: abortSignal ?? AbortSignal.timeout(35000), // timeout + 5s buffer
+    signal: AbortSignal.timeout(30000),
   });
   
   if (!response.ok) {
-    throw new Error(`Poll failed: HTTP ${response.status}`);
+    throw new Error(`Failed to fetch inbox: HTTP ${response.status}`);
   }
   
-  const data: PollResponse = await response.json();
+  const data = await response.json();
   return data.messages ?? [];
 }
 
-/**
- * Acknowledge messages (batch)
- * Marks messages as delivered and schedules for deletion
- */
-async function ackMessages(apiKey: string, messageIds: string[]): Promise<void> {
-  if (messageIds.length === 0) return;
-  
-  await fetch(`${CLAWTELL_API_BASE}/messages/ack`, {
+async function markAsRead(apiKey: string, messageId: string): Promise<void> {
+  await fetch(`${CLAWTELL_API_BASE}/messages/${messageId}/read`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
     },
-    body: JSON.stringify({ messageIds }),
     signal: AbortSignal.timeout(10000),
   });
 }
@@ -95,24 +74,38 @@ export async function pollClawTellInbox(opts: PollOptions): Promise<void> {
     throw new Error("ClawTell API key not configured");
   }
   
+  const pollIntervalMs = account.pollIntervalMs;
   const apiKey = account.apiKey;
   const runtime = getClawTellRuntime();
   
   statusSink({ running: true, lastStartAt: new Date().toISOString() });
   
+  // Track processed message IDs to avoid duplicates
+  const processedIds = new Set<string>();
+  
   while (!abortSignal.aborted) {
     try {
-      // Long poll - will return immediately if messages waiting,
-      // otherwise holds connection for up to 30 seconds
-      const messages = await longPoll(apiKey, { timeout: 30 }, abortSignal);
-      
-      const processedIds: string[] = [];
+      const messages = await fetchInbox(apiKey, { unreadOnly: true });
       
       for (const msg of messages) {
+        // Skip if already processed
+        if (processedIds.has(msg.id)) continue;
+        processedIds.add(msg.id);
+        
+        // Cap the set size to prevent memory growth
+        if (processedIds.size > 1000) {
+          const idsArray = Array.from(processedIds);
+          processedIds.clear();
+          // Keep the most recent 500
+          for (const id of idsArray.slice(-500)) {
+            processedIds.add(id);
+          }
+        }
+        
         const senderName = msg.from.replace(/^tell\//, "");
         
         // Format message content
-        const messageContent = msg.subject && msg.subject !== "Message"
+        const messageContent = msg.subject 
           ? `**${msg.subject}**\n\n${msg.body}`
           : msg.body;
         
@@ -122,49 +115,39 @@ export async function pollClawTellInbox(opts: PollOptions): Promise<void> {
           accountId: account.accountId,
           senderId: `tell/${senderName}`,
           senderDisplay: senderName,
-          chatId: msg.threadId ?? `dm:${senderName}`,
-          chatType: msg.threadId ? "thread" : "direct",
+          chatId: msg.thread_id ?? `dm:${senderName}`,
+          chatType: msg.thread_id ? "thread" : "direct",
           messageId: msg.id,
           text: messageContent,
-          timestamp: new Date(msg.createdAt),
-          replyToId: msg.replyToMessageId,
+          timestamp: new Date(msg.created_at),
+          replyToId: msg.reply_to_id,
           metadata: {
             clawtell: {
+              autoReplyEligible: msg.auto_reply_eligible,
               subject: msg.subject,
-              threadId: msg.threadId,
-              attachments: msg.attachments,
+              threadId: msg.thread_id,
             },
           },
         });
         
-        processedIds.push(msg.id);
+        // Mark as read
+        await markAsRead(apiKey, msg.id);
+        
+        statusSink({ lastInboundAt: new Date().toISOString() });
       }
-      
-      // Batch acknowledge all processed messages
-      if (processedIds.length > 0) {
-        await ackMessages(apiKey, processedIds);
-        statusSink({ 
-          lastInboundAt: new Date().toISOString(),
-          messagesProcessed: processedIds.length,
-        });
-      }
-      
     } catch (error) {
-      // Ignore abort errors
-      if (abortSignal.aborted) break;
-      
       const errorMsg = error instanceof Error ? error.message : String(error);
       statusSink({ lastError: errorMsg });
-      
-      // Brief pause before retry on error
-      await new Promise<void>((resolve) => {
-        const timeout = setTimeout(resolve, 5000);
-        abortSignal.addEventListener("abort", () => {
-          clearTimeout(timeout);
-          resolve();
-        }, { once: true });
-      });
     }
+    
+    // Wait for next poll cycle
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(resolve, pollIntervalMs);
+      abortSignal.addEventListener("abort", () => {
+        clearTimeout(timeout);
+        resolve();
+      }, { once: true });
+    });
   }
   
   statusSink({ running: false, lastStopAt: new Date().toISOString() });

@@ -17,11 +17,6 @@
         "type": "number",
         "default": 30000,
         "description": "How often to poll inbox for new messages (ms)"
-      },
-      "webhookPath": {
-        "type": "string",
-        "default": "/webhook/clawtell",
-        "description": "HTTP path for receiving ClawTell webhooks"
       }
     }
   }

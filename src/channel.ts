@@ -2,6 +2,7 @@
  * ClawTell channel plugin implementation
  * 
  * Provides agent-to-agent messaging via the ClawTell network.
+ * Uses polling for message delivery (simple, works behind NAT/firewalls).
  */
 
 import type { 
@@ -17,11 +18,6 @@ import {
 import { sendClawTellMessage, sendClawTellMediaMessage, type ClawTellSendResult } from "./send.js";
 import { probeClawTell, type ClawTellProbe } from "./probe.js";
 import { pollClawTellInbox } from "./poll.js";
-import { storeGeneratedSecret } from "./runtime.js";
-import { randomBytes } from "crypto";
-
-// ClawTell API base URL
-const CLAWTELL_API_BASE = process.env.CLAWTELL_API_URL || "https://www.clawtell.com/api";
 
 // Channel metadata
 const meta = {
@@ -46,18 +42,10 @@ export interface ResolvedClawTellAccount {
   apiKey: string | null;
   tellName: string | null;
   pollIntervalMs: number;
-  webhookPath: string;
-  webhookSecret: string | null;
-  gatewayUrl: string | null;
-  autoRegister: boolean;
   config: {
     name?: string;
     apiKey?: string;
     pollIntervalMs?: number;
-    webhookPath?: string;
-    webhookSecret?: string;
-    gatewayUrl?: string;
-    autoRegister?: boolean;
   };
 }
 
@@ -67,19 +55,11 @@ interface ClawTellChannelConfig {
   name?: string;
   apiKey?: string;
   pollIntervalMs?: number;
-  webhookPath?: string;
-  webhookSecret?: string;
-  gatewayUrl?: string;
-  autoRegister?: boolean;  // Default: true - auto-register gateway URL on startup
   accounts?: Record<string, {
     enabled?: boolean;
     name?: string;
     apiKey?: string;
     pollIntervalMs?: number;
-    webhookPath?: string;
-    webhookSecret?: string;
-    gatewayUrl?: string;
-    autoRegister?: boolean;
   }>;
 }
 
@@ -99,13 +79,10 @@ function resolveClawTellAccount(opts: {
     ? channelConfig 
     : channelConfig?.accounts?.[accountId];
   
-  const tellName = accountConfig?.name ?? process.env.CLAWTELL_NAME ?? null;
-  const apiKey = accountConfig?.apiKey ?? process.env.CLAWTELL_API_KEY ?? null;
-  // Only apiKey is required - name can be auto-detected from API
-  const configured = Boolean(apiKey);
-  // Simple: API key present = enabled, no API key = disabled
-  // Config can still explicitly disable if needed (enabled: false)
-  const enabled = apiKey ? (accountConfig?.enabled ?? true) : false;
+  const enabled = accountConfig?.enabled ?? (isDefault && channelConfig?.enabled) ?? false;
+  const tellName = accountConfig?.name ?? null;
+  const apiKey = accountConfig?.apiKey ?? null;
+  const configured = Boolean(tellName && apiKey);
   
   return {
     accountId,
@@ -115,61 +92,8 @@ function resolveClawTellAccount(opts: {
     apiKey,
     tellName,
     pollIntervalMs: accountConfig?.pollIntervalMs ?? 30000,
-    webhookPath: accountConfig?.webhookPath ?? "/webhook/clawtell",
-    webhookSecret: accountConfig?.webhookSecret ?? null,
-    gatewayUrl: accountConfig?.gatewayUrl ?? null,
-    autoRegister: accountConfig?.autoRegister ?? true,  // Default: auto-register
     config: accountConfig ?? {},
   };
-}
-
-/**
- * Generate a secure random webhook secret
- */
-function generateWebhookSecret(): string {
-  return randomBytes(32).toString("hex");
-}
-
-/**
- * Register gateway URL and webhook secret with ClawTell API
- */
-async function registerGatewayWithClawTell(opts: {
-  apiKey: string;
-  tellName: string;
-  gatewayUrl: string;
-  webhookSecret: string;
-  log?: { info: (msg: string) => void; warn: (msg: string) => void; error: (msg: string) => void };
-}): Promise<{ ok: boolean; error?: string }> {
-  const { apiKey, tellName, gatewayUrl, webhookSecret, log } = opts;
-  
-  try {
-    const response = await fetch(`${CLAWTELL_API_BASE}/names/${encodeURIComponent(tellName)}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        gateway_url: gatewayUrl,
-        webhook_secret: webhookSecret,
-      }),
-      signal: AbortSignal.timeout(15000),
-    });
-    
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      const errMsg = data.error || `HTTP ${response.status}`;
-      log?.error(`ClawTell: Failed to register gateway: ${errMsg}`);
-      return { ok: false, error: errMsg };
-    }
-    
-    log?.info(`ClawTell: Successfully registered gateway URL: ${gatewayUrl}`);
-    return { ok: true };
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : "Unknown error";
-    log?.error(`ClawTell: Failed to register gateway: ${errMsg}`);
-    return { ok: false, error: errMsg };
-  }
 }
 
 function listClawTellAccountIds(cfg: ClawdbotConfig): string[] {
@@ -450,85 +374,14 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
       const account = ctx.account;
       const cfg = ctx.cfg as ClawdbotConfig;
       
-      // Auto-detect name from API if not configured
-      let tellName = account.tellName;
-      if (!tellName && account.apiKey) {
-        ctx.log?.info(`ClawTell: No name configured, fetching from API...`);
-        const probe = await probeClawTell({ apiKey: account.apiKey, timeoutMs: 10000 });
-        if (probe.ok && probe.name) {
-          tellName = probe.name;
-          // Update account object for use in this session
-          (account as { tellName: string | null }).tellName = tellName;
-          ctx.log?.info(`ClawTell: Auto-detected name: ${tellName}`);
-        } else {
-          ctx.log?.error(`ClawTell: Failed to detect name from API: ${probe.error}`);
-          throw new Error(`ClawTell: Could not determine name from API key. Error: ${probe.error}`);
-        }
-      }
-      
       ctx.setStatus({
         accountId: account.accountId,
-        tellName,
+        tellName: account.tellName,
       });
       
-      ctx.log?.info(`[${account.accountId}] starting ClawTell (name=${tellName}, webhook=${account.webhookPath})`);
+      ctx.log?.info(`[${account.accountId}] starting ClawTell (name=${account.tellName}, poll=${account.pollIntervalMs}ms)`);
       
-      // Auto-register gateway URL with ClawTell if enabled
-      if (account.autoRegister && account.apiKey && tellName) {
-        // Determine gateway URL - from config or auto-detect
-        let gatewayUrl = account.gatewayUrl;
-        
-        if (!gatewayUrl) {
-          // Try to get from gateway config
-          const gatewayCfg = cfg.gateway as { url?: string; publicUrl?: string } | undefined;
-          gatewayUrl = gatewayCfg?.publicUrl || gatewayCfg?.url;
-          
-          // Fallback: try common environment variables
-          if (!gatewayUrl) {
-            gatewayUrl = process.env.CLAWDBOT_PUBLIC_URL || 
-                         process.env.GATEWAY_URL ||
-                         process.env.PUBLIC_URL;
-          }
-        }
-        
-        if (gatewayUrl) {
-          // Generate webhook secret if not configured
-          let webhookSecret = account.webhookSecret;
-          if (!webhookSecret) {
-            webhookSecret = generateWebhookSecret();
-            ctx.log?.info(`ClawTell: Generated new webhook secret (add to config for persistence)`);
-            
-            // Store the generated secret in runtime for webhook verification
-            storeGeneratedSecret(account.accountId, webhookSecret);
-          }
-          
-          // Construct full webhook URL
-          const webhookUrl = gatewayUrl.replace(/\/$/, "") + account.webhookPath;
-          
-          // Register with ClawTell
-          const regResult = await registerGatewayWithClawTell({
-            apiKey: account.apiKey,
-            tellName,
-            gatewayUrl: webhookUrl,
-            webhookSecret,
-            log: ctx.log,
-          });
-          
-          if (!regResult.ok) {
-            ctx.log?.warn(`ClawTell: Gateway registration failed, falling back to polling mode`);
-          } else {
-            ctx.setStatus({ 
-              accountId: account.accountId, 
-              gatewayRegistered: true,
-              webhookUrl,
-            });
-          }
-        } else {
-          ctx.log?.warn(`ClawTell: No gateway URL available, using polling mode only. Set channels.clawtell.gatewayUrl or gateway.publicUrl`);
-        }
-      }
-      
-      // Start inbox polling loop (works alongside webhooks as fallback)
+      // Start inbox polling loop
       return pollClawTellInbox({
         account,
         config: cfg,
