@@ -41,6 +41,8 @@ export interface QueuedMessage {
   accountId: string;
   /** API key for ACK */
   apiKey: string;
+  /** API key for replies (per-route override) */
+  replyApiKey?: string;
   /** Reply-to message ID */
   replyToMessageId?: string;
 }

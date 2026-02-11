@@ -308,8 +308,15 @@ function resolveRoute(toName: string, account: ResolvedClawTellAccount): ClawTel
   // _default fallback
   if (routing["_default"]) return routing["_default"];
   
-  // Ultimate fallback: main agent, forward
+  // Ultimate fallback: main agent, forward (uses account-level key)
   return { agent: "main", forward: true };
+}
+
+/**
+ * Resolve the API key for a route entry. Per-route apiKey overrides account-level key.
+ */
+function resolveReplyKey(route: ClawTellRouteEntry, accountApiKey: string): string {
+  return route.apiKey || accountApiKey;
 }
 
 // ============================================================================
@@ -346,7 +353,8 @@ export async function pollClawTellInbox(opts: PollOptions): Promise<void> {
 async function dispatchToAgent(
   runtime: ClawTellRuntime,
   opts: PollOptions,
-  apiKey: string,
+  apiKey: string,        // account-level key (for polling/ACK)
+  replyApiKey: string,   // per-route key (for sending replies back)
   params: {
     msgId: string;
     senderName: string;
@@ -385,11 +393,11 @@ async function dispatchToAgent(
       cfg: opts.config,
       dispatcherOptions: {
         deliver: async (payload: any) => {
-          console.log(`[ClawTell] Sending reply from ${params.toName} to ${params.senderName}`);
+          console.log(`[ClawTell] Sending reply from ${params.toName} to ${params.senderName} (key=${replyApiKey === apiKey ? 'account' : 'route-specific'})`);
           await fetch(`${CLAWTELL_API_BASE}/messages/send`, {
             method: "POST",
             headers: {
-              "Authorization": `Bearer ${apiKey}`,
+              "Authorization": `Bearer ${replyApiKey}`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
@@ -432,7 +440,7 @@ async function pollAccountLoop(
       for (const qm of queued) {
         if (abortSignal.aborted) break;
         
-        const ok = await dispatchToAgent(runtime, opts, qm.apiKey, {
+        const ok = await dispatchToAgent(runtime, opts, qm.apiKey, qm.replyApiKey || qm.apiKey, {
           msgId: qm.id,
           senderName: qm.from,
           toName: qm.toName,
@@ -511,8 +519,9 @@ async function pollAccountLoop(
           }
         }
         
-        // Dispatch to agent session
-        const ok = await dispatchToAgent(runtime, opts, apiKey, {
+        // Dispatch to agent session (use per-route apiKey for replies)
+        const replyKey = resolveReplyKey(route, apiKey);
+        const ok = await dispatchToAgent(runtime, opts, apiKey, replyKey, {
           msgId: msg.id,
           senderName,
           toName,
@@ -543,6 +552,7 @@ async function pollAccountLoop(
             lastError: "initial dispatch failed",
             accountId: account.accountId,
             apiKey,
+            replyApiKey: replyKey !== apiKey ? replyKey : undefined,
             replyToMessageId: msg.replyToMessageId,
           });
           // ACK on server — we own delivery now via local queue

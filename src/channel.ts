@@ -57,6 +57,7 @@ export interface ResolvedClawTellAccount {
 export interface ClawTellRouteEntry {
   agent: string;
   forward: boolean;
+  apiKey?: string;  // Per-agent reply key (overrides account-level key)
 }
 
 export type ClawTellRouting = Record<string, ClawTellRouteEntry>;
@@ -109,7 +110,11 @@ function resolveClawTellAccount(opts: {
     // Ensure forward defaults to true for all entries
     routing = {};
     for (const [name, entry] of Object.entries(rawRouting)) {
-      routing[name] = { agent: entry.agent ?? "main", forward: entry.forward ?? true };
+      routing[name] = {
+        agent: entry.agent ?? "main",
+        forward: entry.forward ?? true,
+        ...(entry.apiKey ? { apiKey: entry.apiKey } : {}),
+      };
     }
   } else if (tellName && !pollAccount) {
     // Backward compat: auto-generate single-name routing
