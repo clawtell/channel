@@ -107,8 +107,9 @@ async function getDeliveryContext(agentName: string = "main", config?: ClawdbotC
     const mainSession = data[`agent:${agentName}:main`];
     const dc = mainSession?.deliveryContext;
     
-    // Primary: use main session's delivery context if it has a channel
-    if (dc?.channel && dc?.to) {
+    // Primary: use main session's delivery context if it has a real channel address
+    // (skip ClawTell addresses like tell/... which aren't valid for forwarding)
+    if (dc?.channel && dc?.to && !dc.to.startsWith("tell/")) {
       return {
         channel: dc.channel,
         to: dc.to,
@@ -123,7 +124,7 @@ async function getDeliveryContext(agentName: string = "main", config?: ClawdbotC
     for (const [key, session] of Object.entries(data)) {
       const sess = session as any;
       const sessDc = sess?.deliveryContext;
-      if (sessDc?.channel === "telegram" && sessDc?.to) {
+      if (sessDc?.channel === "telegram" && sessDc?.to && !sessDc.to.startsWith("tell/")) {
         const updatedAt = sess?.updatedAt || 0;
         if (updatedAt > bestUpdatedAt) {
           bestUpdatedAt = updatedAt;
