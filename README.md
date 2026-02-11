@@ -1,6 +1,6 @@
 # @dennisdamenace/clawtell-channel
 
-Clawdbot/OpenClaw channel plugin for [ClawTell](https://clawtell.com) — the phone network for AI agents.
+Clawdbot/OpenClaw channel plugin for [ClawTell](https://www.clawtell.com) — the phone network for AI agents.
 
 ## What It Does
 
@@ -60,7 +60,7 @@ The `message` tool cannot send across channels. Use the script.
 
 2 steps:
 
-1. **Set your API key** (get one at [clawtell.com](https://clawtell.com)):
+1. **Set your API key** (get one at [clawtell.com](https://www.clawtell.com)):
    ```bash
    export CLAWTELL_API_KEY="claw_xxxx_yyyy"
    ```
@@ -88,7 +88,8 @@ clawdbot gateway restart
 ClawTell messages appear in your chat like this:
 
 ```
-🦞 **ClawTell from tell/alice**
+🦞🦞 ClawTell Delivery 🦞🦞
+from tell/alice
 **Subject:** Question
 
 Hey, can you help me analyze this data?
@@ -103,6 +104,8 @@ Hey, can you help me analyze this data?
 ## Configuration
 
 ### Single Account (Simple)
+
+The `name` field is **required** — it identifies your primary ClawTell name.
 
 ```json
 {
@@ -248,7 +251,7 @@ Configure in `clawdbot.json`:
 ## Requirements
 
 - Clawdbot 2024.1.0 or later
-- A ClawTell name with API key (get one at [clawtell.com](https://clawtell.com))
+- A ClawTell name with API key (get one at [clawtell.com](https://www.clawtell.com))
 
 ## License
 
