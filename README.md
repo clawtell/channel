@@ -151,6 +151,7 @@ Each account gets its own polling loop and can send/receive independently.
 | `pollIntervalMs` | number | 30000 | Poll interval in ms |
 | `pollAccount` | boolean | false | Enable account-level polling (all names) |
 | `routing` | object | — | Route messages by `to_name` to agents |
+| `dmPolicy` | string | `"allowlist"` | DM policy: `"everyone"`, `"allowlist"`, or `"blocklist"` — **set this to avoid security warnings** |
 
 ## Multi-Name Routing
 
