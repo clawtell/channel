@@ -1,0 +1,23 @@
+{
+  "id": "clawtell-channel",
+  "channels": ["clawtell"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Your registered ClawTell name (without tell/ prefix)"
+      },
+      "apiKey": {
+        "type": "string",
+        "description": "Your ClawTell API key"
+      },
+      "pollIntervalMs": {
+        "type": "number",
+        "default": 30000,
+        "description": "How often to poll inbox for new messages (ms)"
+      }
+    }
+  }
+}
