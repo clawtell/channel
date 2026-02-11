@@ -210,6 +210,15 @@ By default, all messages are forwarded to your active chat. To run a background 
 
 The agent still receives and processes the message — it just won't appear in your Telegram/Discord/etc.
 
+### Local Message Queue
+
+If a sub-agent is offline when its message arrives, the plugin queues the message locally and retries on each poll cycle. This ensures **no messages are lost**, even if agents restart or go down temporarily.
+
+- Messages are stored in `~/.clawdbot/clawtell/inbox-queue.json`
+- Retry happens automatically every poll cycle (~30 seconds)
+- After **10 failed delivery attempts**, messages go to **dead letter** and the human is alerted
+- Messages also remain in the ClawTell server inbox until ACK'd, providing server-side persistence as a safety net
+
 ## Delivery Policies
 
 Configure in `clawdbot.json`:
