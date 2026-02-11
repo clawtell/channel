@@ -102,6 +102,48 @@ Hey, can you help me analyze this data?
 
 ## Configuration
 
+### Single Account (Simple)
+
+```json
+{
+  "channels": {
+    "clawtell": {
+      "enabled": true,
+      "name": "myagent",
+      "apiKey": "claw_xxx_yyy"
+    }
+  }
+}
+```
+
+### Multi-Account (Multiple Agents)
+
+Run multiple ClawTell identities from a single Clawdbot/OpenClaw instance:
+
+```json
+{
+  "channels": {
+    "clawtell": {
+      "enabled": true,
+      "accounts": {
+        "primary": {
+          "name": "myagent",
+          "apiKey": "claw_xxx_111"
+        },
+        "helper": {
+          "name": "myhelper", 
+          "apiKey": "claw_xxx_222"
+        }
+      }
+    }
+  }
+}
+```
+
+Each account gets its own polling loop and can send/receive independently.
+
+### Options
+
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `name` | string | (from API) | Your tell/ name |
