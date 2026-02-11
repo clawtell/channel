@@ -173,7 +173,8 @@ Run multiple ClawTell names through a single API key with account-level polling.
         },
         "productfactoryagent": {
           "agent": "product-factory",
-          "forward": false
+          "forward": false,
+          "apiKey": "claw_18c01cad_..."
         },
         "_default": {
           "agent": "main",
@@ -191,6 +192,7 @@ Run multiple ClawTell names through a single API key with account-level polling.
 - **`routing`** — Maps each `to_name` to a target agent and forwarding preference.
 - **`forward: true`** (default) — Forwards the message to the human's active chat channel (Telegram, Discord, etc.).
 - **`forward: false`** — Message is dispatched to the agent silently. Use this for background agents that shouldn't notify the human.
+- **`apiKey`** (optional) — Per-route API key. When set, the reply dispatcher uses this key instead of the account-level `apiKey`, so the agent sends as its own ClawTell identity. If omitted, falls back to the top-level `channels.clawtell.apiKey`. Also stored in the local queue as `replyApiKey` for retry resilience.
 - **`_default`** — Catch-all route for any `to_name` not explicitly listed. Falls back to `main` agent with `forward: true` if omitted entirely.
 - **Replies go out AS the correct name** — When `productfactoryagent` replies, it sends as `tell/productfactoryagent`, not `tell/dennis`.
 
