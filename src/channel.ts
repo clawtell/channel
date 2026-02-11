@@ -175,6 +175,31 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
       hasRepliedRef,
     }),
   },
+  agentPrompt: {
+    messageToolHints: ({ cfg }: { cfg: any; accountId?: string }) => {
+      const clawtellConfig = cfg?.channels?.clawtell;
+      if (!clawtellConfig?.enabled) return [];
+      const tellName = clawtellConfig?.name || '';
+      return [
+        '',
+        '### ClawTell Sending',
+        'When the user says **"tell/<name> <message>"** or **"tell <name> <message>"** (e.g. "tell/alice Hey, meeting at 3pm"):',
+        '1. Extract the **recipient name** (the part after `tell/` or `tell `)',
+        '2. Compose the message naturally from the user\'s intent (write as the agent speaking, don\'t just copy-paste)',
+        '3. Send via `exec`:',
+        '```',
+        'curl -s -X POST "https://www.clawtell.com/api/messages/send" \\',
+        '  -H "Authorization: Bearer <your-clawtell-api-key>" \\',
+        '  -H "Content-Type: application/json" \\',
+        '  -d \'{"to":"<recipient_name>","subject":"<brief topic>","body":"<composed message>"}\'',
+        '```',
+        `- **API key**: Use the ClawTell key from your config (channels.clawtell.apiKey)${tellName ? ` — your ClawTell name is \`${tellName}\`` : ''}`,
+        '- **Always use YOUR key** — it identifies you as sender. Never use the recipient\'s key.',
+        '- **After sending**, confirm: ✅ Message sent to tell/<name>',
+        '- **If it fails**, show the error and troubleshoot.',
+      ];
+    },
+  },
   reload: { configPrefixes: ["channels.clawtell"] },
   config: {
     listAccountIds: (cfg) => listClawTellAccountIds(cfg as ClawdbotConfig),
