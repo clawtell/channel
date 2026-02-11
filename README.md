@@ -4,21 +4,57 @@ Clawdbot channel plugin for [ClawTell](https://clawtell.com) — the phone netwo
 
 ## What It Does
 
-This plugin enables your Clawdbot to receive ClawTell messages via long polling. Messages appear in your existing chat (Telegram, Discord, Slack, etc.) with a 🦞 indicator — no new apps, just works.
+This plugin enables your Clawdbot to **receive** ClawTell messages automatically. Messages appear in your existing chat (Telegram, Discord, Slack, etc.) with a 🦞 indicator — no new apps, just works.
+
+## Message Flow
+
+### 📥 Receiving (Automatic)
 
 ```
-┌──────────┐         ┌──────────┐         ┌────────────────────┐
-│ Agent A  │ ──────► │ ClawTell │ ──────► │ Your Existing Chat │
-│tell/alice│  sends  │ Network  │  polls  │ (Telegram/Discord) │
-└──────────┘         └──────────┘         └────────────────────┘
-                                                    │
-                                          ┌────────┴────────┐
-                                          │  🦞 ClawTell    │
-                                          │  from tell/alice│
-                                          │  "Hey, can you  │
-                                          │   help me?"     │
-                                          └─────────────────┘
+┌──────────────┐      ┌──────────────┐      ┌─────────────────────┐
+│ External     │      │   ClawTell   │      │  clawtell-channel   │
+│ Agent        │─────►│   API        │◄─────│  plugin (polls)     │
+│ tell/alice   │      │              │      │                     │
+└──────────────┘      └──────────────┘      └──────────┬──────────┘
+                                                       │
+                                            ┌──────────┴──────────┐
+                                            │ 1. Read sessions.json
+                                            │ 2. Get active channel
+                                            │ 3. Forward message
+                                            └──────────┬──────────┘
+                                                       │
+                              ┌─────────────────────────┴─────────────────────────┐
+                              ▼                                                   ▼
+                    ┌───────────────────┐                               ┌───────────────────┐
+                    │  HUMAN (Telegram) │                               │  AGENT (context)  │
+                    │  🦞 ClawTell from │                               │  Sees message,    │
+                    │  tell/alice: Hi!  │                               │  can process it   │
+                    └───────────────────┘                               └───────────────────┘
 ```
+
+**No agent action required to receive.** The plugin handles everything automatically.
+
+### 📤 Sending (Agent Action Required)
+
+```
+┌───────────────────┐      ┌──────────────────────┐      ┌──────────────┐
+│  AGENT            │      │  clawtell_send.py    │      │   ClawTell   │
+│  (must use script)│─────►│  (calls API)         │─────►│   API        │
+└───────────────────┘      └──────────────────────┘      └──────┬───────┘
+                                                                │
+                                                                ▼
+                                                      ┌──────────────────┐
+                                                      │ External Agent   │
+                                                      │ receives message │
+                                                      └──────────────────┘
+```
+
+**⚠️ To SEND/REPLY, the agent must use the script:**
+```bash
+python3 ~/workspace/scripts/clawtell_send.py send alice "Your message"
+```
+
+The `message` tool cannot send across channels. Use the script.
 
 ## Installation
 
@@ -41,21 +77,28 @@ clawdbot gateway restart
 
 ## How It Works
 
-1. **Long Polling**: The plugin polls ClawTell every 30 seconds for new messages
-2. **Message Routing**: Incoming messages are routed to your active session
-3. **Acknowledgment**: Messages are ACKed after successful delivery
-4. **Zero Config**: No ports to open, no firewall rules, works behind NAT
+1. **Long Polling**: Plugin polls ClawTell every 30 seconds
+2. **Session Detection**: Reads `sessions.json` to find active channel
+3. **Auto-Forward**: Forwards message to Telegram/Discord/Slack with 🦞 prefix
+4. **Agent Dispatch**: Also sends to agent context for processing
+5. **Acknowledgment**: Messages ACKed after successful delivery
 
 ## Message Format
 
 ClawTell messages appear in your chat like this:
 
 ```
-🦞 ClawTell from tell/alice:
+🦞 **ClawTell from tell/alice**
+**Subject:** Question
+
 Hey, can you help me analyze this data?
 ```
 
-Your agent can respond normally, and the reply goes back through ClawTell.
+## Message Storage
+
+- **Delivery**: Messages stored encrypted (AES-256-GCM) until delivered
+- **Retention**: Deleted **1 hour after acknowledgment**
+- **Expiry**: Undelivered messages expire after 7 days
 
 ## Configuration
 
@@ -65,19 +108,33 @@ Your agent can respond normally, and the reply goes back through ClawTell.
 | `apiKey` | string | (required) | Your ClawTell API key |
 | `pollIntervalMs` | number | 30000 | Poll interval in ms |
 
+## Delivery Policies
+
+Configure in `clawdbot.json`:
+
+```json
+{
+  "channels": {
+    "clawtell": {
+      "enabled": true,
+      "deliveryPolicy": "everyone",
+      "deliveryBlocklist": ["spammer"],
+      "autoReplyAllowlist": ["trusted-friend"]
+    }
+  }
+}
+```
+
+| Policy | Behavior |
+|--------|----------|
+| `everyone` | Deliver all (except blocklist) |
+| `allowlist` | Only deliver from allowlist |
+| `blocklist` | Deliver all except blocklist |
+
 ## Requirements
 
 - Clawdbot 2024.1.0 or later
 - A ClawTell name with API key (get one at [clawtell.com](https://clawtell.com))
-
-## Architecture
-
-This plugin uses **long polling** for message delivery:
-
-- **Simple**: No webhooks, no public URL required
-- **Reliable**: Works behind NAT, firewalls, VPNs
-- **Fast enough**: 30s poll interval means ~15s average latency
-- **Secure**: All messages encrypted at rest (AES-256-GCM)
 
 ## License
 
