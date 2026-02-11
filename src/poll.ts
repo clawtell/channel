@@ -1,13 +1,16 @@
 /**
  * ClawTell inbox polling
  * 
- * Polls the ClawTell inbox for new messages as a fallback
- * when webhooks are not available.
+ * Polls the ClawTell inbox for new messages and forwards them to the human's
+ * active channel (Telegram/Discord/etc.) with 🦞 prefix, then dispatches to
+ * the agent session for processing.
  */
 
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import type { ClawdbotConfig } from "clawdbot/plugin-sdk";
 import type { ResolvedClawTellAccount } from "./channel.js";
-import { getClawTellRuntime } from "./runtime.js";
+import { getClawTellRuntime, type ClawTellRuntime } from "./runtime.js";
 
 const CLAWTELL_API_BASE = "https://www.clawtell.com/api";
 
@@ -31,20 +34,176 @@ interface PollOptions {
   statusSink: (patch: Record<string, unknown>) => void;
 }
 
+interface DeliveryContext {
+  channel: string;
+  to: string;
+  accountId?: string;
+}
+
+/**
+ * Check if sender passes delivery policy
+ */
+function checkDeliveryPolicy(sender: string, config: ClawdbotConfig): { allowed: boolean; reason?: string } {
+  const ctConfig = (config.channels as any)?.clawtell ?? {};
+  const policy = ctConfig.deliveryPolicy ?? "everyone";
+  const normalizedSender = sender.toLowerCase().replace(/^tell\//, "");
+  
+  switch (policy) {
+    case "everyone": {
+      const blocklist: string[] = ctConfig.deliveryBlocklist ?? [];
+      if (blocklist.map((s: string) => s.toLowerCase()).includes(normalizedSender)) {
+        return { allowed: false, reason: "sender on blocklist" };
+      }
+      return { allowed: true };
+    }
+    case "allowlist": {
+      const allowlist: string[] = ctConfig.deliveryAllowlist ?? [];
+      if (allowlist.map((s: string) => s.toLowerCase()).includes(normalizedSender)) {
+        return { allowed: true };
+      }
+      return { allowed: false, reason: "sender not on allowlist" };
+    }
+    case "blocklist": {
+      const blocklistOnly: string[] = ctConfig.deliveryBlocklist ?? [];
+      if (blocklistOnly.map((s: string) => s.toLowerCase()).includes(normalizedSender)) {
+        return { allowed: false, reason: "sender on blocklist" };
+      }
+      return { allowed: true };
+    }
+    default:
+      return { allowed: true };
+  }
+}
+
+/**
+ * Check if sender is on auto-reply allowlist
+ */
+function isAutoReplyAllowed(sender: string, config: ClawdbotConfig): boolean {
+  const ctConfig = (config.channels as any)?.clawtell ?? {};
+  const allowlist: string[] = ctConfig.autoReplyAllowlist ?? [];
+  const normalizedSender = sender.toLowerCase().replace(/^tell\//, "");
+  return allowlist.map((s: string) => s.toLowerCase()).includes(normalizedSender);
+}
+
+/**
+ * Read delivery context from sessions.json
+ */
+async function getDeliveryContext(): Promise<DeliveryContext | null> {
+  try {
+    const sessionsPath = path.join(
+      process.env.HOME || "/home/claw",
+      ".clawdbot",
+      "agents",
+      "main",
+      "sessions",
+      "sessions.json"
+    );
+    
+    const data = JSON.parse(await fs.readFile(sessionsPath, "utf8"));
+    const mainSession = data["agent:main:main"];
+    const dc = mainSession?.deliveryContext;
+    
+    if (dc?.channel && dc?.to) {
+      return {
+        channel: dc.channel,
+        to: dc.to,
+        accountId: dc.accountId || "default"
+      };
+    }
+    return null;
+  } catch (err) {
+    console.error("[ClawTell] Failed to read delivery context:", err);
+    return null;
+  }
+}
+
+/**
+ * Forward message to human's active channel
+ */
+async function forwardToActiveChannel(
+  runtime: ClawTellRuntime,
+  messageContent: string,
+  config: ClawdbotConfig
+): Promise<void> {
+  const dc = await getDeliveryContext();
+  
+  if (!dc) {
+    console.log("[ClawTell] No active delivery context, skipping forward");
+    return;
+  }
+  
+  console.log(`[ClawTell] Forwarding to ${dc.channel}: ${dc.to}`);
+  const sendOpts = { accountId: dc.accountId || "default" };
+  
+  try {
+    switch (dc.channel) {
+      case "telegram":
+        if (runtime.channel?.telegram?.sendMessageTelegram) {
+          await runtime.channel.telegram.sendMessageTelegram(dc.to, messageContent, sendOpts);
+        } else {
+          // Fallback: direct API call
+          const telegramConfig = (config.channels as any)?.telegram;
+          const account = telegramConfig?.accounts?.[dc.accountId || "default"] || telegramConfig;
+          const botToken = account?.botToken;
+          if (botToken) {
+            const chatId = dc.to.replace(/^telegram:/, "");
+            const resp = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: chatId,
+                text: messageContent,
+                parse_mode: "Markdown",
+              }),
+              signal: AbortSignal.timeout(10000),
+            });
+            const result = await resp.json();
+            if (!result.ok) {
+              console.error("[ClawTell] Telegram API error:", result.description);
+            }
+          }
+        }
+        break;
+      case "discord":
+        if (runtime.channel?.discord?.sendMessageDiscord) {
+          await runtime.channel.discord.sendMessageDiscord(dc.to, messageContent, sendOpts);
+        }
+        break;
+      case "slack":
+        if (runtime.channel?.slack?.sendMessageSlack) {
+          await runtime.channel.slack.sendMessageSlack(dc.to, messageContent, sendOpts);
+        }
+        break;
+      case "signal":
+        if (runtime.channel?.signal?.sendMessageSignal) {
+          await runtime.channel.signal.sendMessageSignal(dc.to, messageContent, sendOpts);
+        }
+        break;
+      case "whatsapp":
+        if (runtime.channel?.whatsapp?.sendMessageWhatsApp) {
+          await runtime.channel.whatsapp.sendMessageWhatsApp(dc.to, messageContent, sendOpts);
+        }
+        break;
+      default:
+        console.log(`[ClawTell] Channel "${dc.channel}" forwarding not yet supported`);
+    }
+    console.log("[ClawTell] Message forwarded successfully");
+  } catch (err) {
+    console.error("[ClawTell] Forward failed:", err);
+  }
+}
+
 async function fetchInbox(
   apiKey: string,
   opts?: { unreadOnly?: boolean; limit?: number }
 ): Promise<ClawTellMessage[]> {
   const { unreadOnly = true, limit = 50 } = opts ?? {};
   
-  console.log("[ClawTell Poll] fetchInbox called - unreadOnly:", unreadOnly, "limit:", limit);
-  
   const params = new URLSearchParams();
   if (unreadOnly) params.set("unread", "true");
   params.set("limit", String(limit));
   
   const url = `${CLAWTELL_API_BASE}/messages/inbox?${params}`;
-  console.log("[ClawTell Poll] Fetching from URL:", url);
   
   const response = await fetch(url, {
     method: "GET",
@@ -54,19 +213,15 @@ async function fetchInbox(
     signal: AbortSignal.timeout(30000),
   });
   
-  console.log("[ClawTell Poll] Response status:", response.status, response.statusText);
-  
   if (!response.ok) {
     throw new Error(`Failed to fetch inbox: HTTP ${response.status}`);
   }
   
   const data = await response.json();
-  console.log("[ClawTell Poll] Received", data.messages?.length ?? 0, "messages");
   return data.messages ?? [];
 }
 
 async function markAsRead(apiKey: string, messageId: string): Promise<void> {
-  console.log("[ClawTell Poll] Marking message as read:", messageId);
   await fetch(`${CLAWTELL_API_BASE}/messages/${messageId}/read`, {
     method: "POST",
     headers: {
@@ -79,9 +234,7 @@ async function markAsRead(apiKey: string, messageId: string): Promise<void> {
 export async function pollClawTellInbox(opts: PollOptions): Promise<void> {
   const { account, abortSignal, statusSink } = opts;
   
-  console.log("[ClawTell Poll] pollClawTellInbox STARTED for account:", account.accountId);
-  console.log("[ClawTell Poll] API Key present:", !!account.apiKey);
-  console.log("[ClawTell Poll] Poll interval:", account.pollIntervalMs, "ms");
+  console.log("[ClawTell Poll] Starting for account:", account.accountId);
   
   if (!account.apiKey) {
     throw new Error("ClawTell API key not configured");
@@ -90,42 +243,26 @@ export async function pollClawTellInbox(opts: PollOptions): Promise<void> {
   const pollIntervalMs = account.pollIntervalMs;
   const apiKey = account.apiKey;
   
-  console.log("[ClawTell Poll] Getting runtime...");
   const runtime = getClawTellRuntime();
-  console.log("[ClawTell Poll] Runtime obtained successfully");
   
   statusSink({ running: true, lastStartAt: new Date().toISOString() });
   
   // Track processed message IDs to avoid duplicates
   const processedIds = new Set<string>();
   
-  let pollCount = 0;
-  console.log("[ClawTell Poll] Entering polling loop...");
-  
   while (!abortSignal.aborted) {
-    pollCount++;
-    console.log("[ClawTell Poll] === Poll cycle", pollCount, "===");
-    
     try {
-      console.log("[ClawTell Poll] Fetching inbox...");
       const messages = await fetchInbox(apiKey, { unreadOnly: true });
-      console.log("[ClawTell Poll] Fetched", messages.length, "messages");
       
       for (const msg of messages) {
-        console.log("[ClawTell Poll] Processing message:", msg.id, "from:", msg.from);
-        
         // Skip if already processed
-        if (processedIds.has(msg.id)) {
-          console.log("[ClawTell Poll] Skipping duplicate message:", msg.id);
-          continue;
-        }
+        if (processedIds.has(msg.id)) continue;
         processedIds.add(msg.id);
         
-        // Cap the set size to prevent memory growth
+        // Cap the set size
         if (processedIds.size > 1000) {
           const idsArray = Array.from(processedIds);
           processedIds.clear();
-          // Keep the most recent 500
           for (const id of idsArray.slice(-500)) {
             processedIds.add(id);
           }
@@ -133,19 +270,37 @@ export async function pollClawTellInbox(opts: PollOptions): Promise<void> {
         
         const senderName = msg.from.replace(/^tell\//, "");
         
-        // Format message content
-        const messageContent = msg.subject 
-          ? `**${msg.subject}**\n\n${msg.body}`
-          : msg.body;
-        console.log("[ClawTell Poll] Routing message to runtime...");
+        // Check delivery policy
+        const deliveryCheck = checkDeliveryPolicy(senderName, opts.config);
+        if (!deliveryCheck.allowed) {
+          console.log(`[ClawTell] Rejecting message from ${senderName}: ${deliveryCheck.reason}`);
+          await markAsRead(apiKey, msg.id);
+          continue;
+        }
         
-        // Build inbound context using correct Clawdbot API
+        // Check auto-reply allowlist
+        const canAutoReply = isAutoReplyAllowed(senderName, opts.config);
+        console.log(`[ClawTell] Auto-reply for ${senderName}: ${canAutoReply ? 'ALLOWED' : 'WAIT FOR HUMAN'}`);
+        
+        // Format message with 🦞 prefix for visibility
+        const messageContent = msg.subject
+          ? `🦞 **ClawTell from tell/${senderName}**\n**Subject:** ${msg.subject}\n\n${msg.body}`
+          : `🦞 **ClawTell from tell/${senderName}**\n\n${msg.body}`;
+        
+        // Forward to human's active channel (Telegram/Discord/etc.)
+        try {
+          await forwardToActiveChannel(runtime, messageContent, opts.config);
+        } catch (err) {
+          console.error("[ClawTell] Forward failed:", err);
+        }
+        
+        // Also dispatch to agent session for processing/auto-reply
         const inboundCtx = runtime.channel.reply.finalizeInboundContext({
           Body: messageContent,
           RawBody: msg.body,
           From: `tell/${senderName}`,
           To: `tell/${account.tellName}`,
-          SessionKey: `clawtell:${account.accountId}:dm:${senderName}`,
+          SessionKey: `agent:main:main`,  // Route to main session
           AccountId: account.accountId,
           ChatType: "direct",
           SenderName: senderName,
@@ -159,15 +314,12 @@ export async function pollClawTellInbox(opts: PollOptions): Promise<void> {
           Subject: msg.subject,
         });
         
-        console.log("[ClawTell Poll] Context built, dispatching...");
-        
-        // Dispatch to agent with reply callback
         await runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
           ctx: inboundCtx,
           cfg: opts.config,
           dispatcherOptions: {
             deliver: async (payload: any) => {
-              console.log("[ClawTell Poll] Sending reply back to", senderName);
+              console.log("[ClawTell] Sending reply back to", senderName);
               await fetch(`${CLAWTELL_API_BASE}/messages`, {
                 method: "POST",
                 headers: {
@@ -184,25 +336,20 @@ export async function pollClawTellInbox(opts: PollOptions): Promise<void> {
               });
             },
             onError: (err: Error) => {
-              console.error("[ClawTell Poll] Reply delivery error:", err);
+              console.error("[ClawTell] Reply delivery error:", err);
             },
           },
         });
         
-        console.log("[ClawTell Poll] Message dispatched successfully");
-        // Mark as read
         await markAsRead(apiKey, msg.id);
-        
         statusSink({ lastInboundAt: new Date().toISOString() });
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error("[ClawTell Poll] ERROR in poll cycle:", errorMsg);
-      console.error("[ClawTell Poll] Full error:", error);
+      console.error("[ClawTell] Poll error:", errorMsg);
       statusSink({ lastError: errorMsg });
     }
     
-    console.log("[ClawTell Poll] Waiting", pollIntervalMs, "ms before next poll...");
     // Wait for next poll cycle
     await new Promise<void>((resolve) => {
       const timeout = setTimeout(resolve, pollIntervalMs);
@@ -213,6 +360,5 @@ export async function pollClawTellInbox(opts: PollOptions): Promise<void> {
     });
   }
   
-  console.log("[ClawTell Poll] Polling loop ended (aborted)");
   statusSink({ running: false, lastStopAt: new Date().toISOString() });
 }
