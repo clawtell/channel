@@ -88,9 +88,11 @@ function isAutoReplyAllowed(sender: string, config: ClawdbotConfig): boolean {
 }
 
 /**
- * Read delivery context from sessions.json for a given agent
+ * Read delivery context from sessions.json for a given agent.
+ * Falls back to scanning all sessions for a Telegram delivery context,
+ * and finally checks bindings config for a bound Telegram account.
  */
-async function getDeliveryContext(agentName: string = "main"): Promise<DeliveryContext | null> {
+async function getDeliveryContext(agentName: string = "main", config?: ClawdbotConfig): Promise<DeliveryContext | null> {
   try {
     const sessionsPath = path.join(
       process.env.HOME || "/home/claw",
@@ -105,6 +107,7 @@ async function getDeliveryContext(agentName: string = "main"): Promise<DeliveryC
     const mainSession = data[`agent:${agentName}:main`];
     const dc = mainSession?.deliveryContext;
     
+    // Primary: use main session's delivery context if it has a channel
     if (dc?.channel && dc?.to) {
       return {
         channel: dc.channel,
@@ -112,6 +115,43 @@ async function getDeliveryContext(agentName: string = "main"): Promise<DeliveryC
         accountId: dc.accountId || "default"
       };
     }
+
+    // Fallback 1: scan all sessions for a Telegram delivery context
+    // (the agent may have Telegram DM sessions under different keys)
+    let bestTelegramDc: DeliveryContext | null = null;
+    let bestUpdatedAt = 0;
+    for (const [key, session] of Object.entries(data)) {
+      const sess = session as any;
+      const sessDc = sess?.deliveryContext;
+      if (sessDc?.channel === "telegram" && sessDc?.to) {
+        const updatedAt = sess?.updatedAt || 0;
+        if (updatedAt > bestUpdatedAt) {
+          bestUpdatedAt = updatedAt;
+          bestTelegramDc = {
+            channel: "telegram",
+            to: sessDc.to,
+            accountId: sessDc.accountId || "default"
+          };
+        }
+      }
+    }
+    if (bestTelegramDc) return bestTelegramDc;
+
+    // Fallback 2: check bindings config for a bound Telegram account
+    if (config) {
+      const bindings = (config as any).bindings;
+      if (Array.isArray(bindings)) {
+        for (const binding of bindings) {
+          if (binding?.agentId === agentName && binding?.match?.channel === "telegram") {
+            const boundAccountId = binding.match.accountId || "default";
+            // We have a bound Telegram account but no chat ID — can't forward without a recipient
+            console.log(`[ClawTell] Agent ${agentName} has bound Telegram account "${boundAccountId}" but no known chat ID`);
+            break;
+          }
+        }
+      }
+    }
+
     return null;
   } catch {
     return null;
@@ -127,7 +167,7 @@ async function forwardToActiveChannel(
   config: ClawdbotConfig,
   agentName: string = "main"
 ): Promise<void> {
-  const dc = await getDeliveryContext(agentName);
+  const dc = await getDeliveryContext(agentName, config);
   
   if (!dc) {
     console.log(`[ClawTell] No active delivery context for agent=${agentName}, skipping forward`);
