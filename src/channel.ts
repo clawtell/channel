@@ -185,7 +185,23 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
       const clawtellConfig = cfg?.channels?.clawtell;
       if (!clawtellConfig?.enabled) return [];
       const tellName = clawtellConfig?.name || '';
-      return [
+      const routing = clawtellConfig?.routing as Record<string, any> | undefined;
+      const accountApiKey = clawtellConfig?.apiKey || '';
+      
+      // Build per-agent key table from routing entries
+      const agentKeyLines: string[] = [];
+      if (routing) {
+        for (const [name, entry] of Object.entries(routing)) {
+          if (name === '_default' || !entry) continue;
+          const key = entry.apiKey || accountApiKey;
+          const agentId = entry.agent || 'main';
+          if (key) {
+            agentKeyLines.push(`  - Agent **${agentId}** sends as \`tell/${name}\` using key: \`${key.slice(0, 15)}...${key.slice(-4)}\``);
+          }
+        }
+      }
+      
+      const hints = [
         '',
         '### ClawTell Sending',
         'When the user says **"tell/<name> <message>"** or **"tell <name> <message>"** (e.g. "tell/alice Hey, meeting at 3pm"):',
@@ -198,10 +214,19 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
         '  -H "Content-Type: application/json" \\',
         '  -d \'{"to":"<recipient_name>","subject":"<brief topic>","body":"<composed message>"}\'',
         '```',
-        `- **API key**: Use the ClawTell key from your config (channels.clawtell.apiKey)${tellName ? ` — your ClawTell name is \`${tellName}\`` : ''}`,
-        '- **After sending**, confirm: ✅ Message sent to tell/<name>',
-        '- **If it fails**, show the error and troubleshoot.',
       ];
+      
+      if (agentKeyLines.length > 0) {
+        hints.push('- **API key per agent** (use YOUR agent\'s key so the message shows the correct sender):');
+        hints.push(...agentKeyLines);
+      } else if (accountApiKey) {
+        hints.push(`- **API key**: \`${accountApiKey.slice(0, 15)}...${accountApiKey.slice(-4)}\`${tellName ? ` — your ClawTell name is \`${tellName}\`` : ''}`);
+      }
+      
+      hints.push('- **After sending**, confirm: ✅ Message sent to tell/<name>');
+      hints.push('- **If it fails**, show the error and troubleshoot.');
+      
+      return hints;
     },
   },
   reload: { configPrefixes: ["channels.clawtell"] },
