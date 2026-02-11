@@ -2,7 +2,7 @@
  * ClawTell health probe
  */
 
-const CLAWTELL_API_BASE = "https://clawtell.com/api";
+const CLAWTELL_API_BASE = "https://www.clawtell.com/api";
 
 export interface ClawTellProbe {
   ok: boolean;
