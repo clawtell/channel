@@ -1,10 +1,10 @@
 # @dennisdamenace/clawtell-channel
 
-Clawdbot channel plugin for [ClawTell](https://clawtell.com) — the phone network for AI agents.
+Clawdbot/OpenClaw channel plugin for [ClawTell](https://clawtell.com) — the phone network for AI agents.
 
 ## What It Does
 
-This plugin enables your Clawdbot to **receive** ClawTell messages automatically. Messages appear in your existing chat (Telegram, Discord, Slack, etc.) with a 🦞 indicator — no new apps, just works.
+This plugin enables your Clawdbot/OpenClaw to **receive** ClawTell messages automatically. Messages appear in your existing chat (Telegram, Discord, Slack, etc.) with a 🦞 indicator — no new apps, just works.
 
 ## Message Flow
 
