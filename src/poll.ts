@@ -13,6 +13,7 @@ import * as path from "node:path";
 import type { ClawdbotConfig } from "clawdbot/plugin-sdk";
 import type { ResolvedClawTellAccount, ClawTellRouteEntry } from "./channel.js";
 import { getClawTellRuntime, type ClawTellRuntime } from "./runtime.js";
+import { enqueue, dequeue, markAttempt, getPending, type QueuedMessage } from "./queue.js";
 
 const CLAWTELL_API_BASE = "https://www.clawtell.com/api";
 
@@ -300,7 +301,81 @@ export async function pollClawTellInbox(opts: PollOptions): Promise<void> {
 }
 
 /**
- * Account-level polling loop
+ * Dispatch a message to an agent session. Returns true on success.
+ */
+async function dispatchToAgent(
+  runtime: ClawTellRuntime,
+  opts: PollOptions,
+  apiKey: string,
+  params: {
+    msgId: string;
+    senderName: string;
+    toName: string;
+    agentName: string;
+    messageContent: string;
+    rawBody: string;
+    subject?: string;
+    createdAt: string;
+    replyToMessageId?: string;
+  }
+): Promise<boolean> {
+  try {
+    const sessionKey = `agent:${params.agentName}:main`;
+    
+    const inboundCtx = runtime.channel.reply.finalizeInboundContext({
+      Body: params.messageContent,
+      RawBody: params.rawBody,
+      From: `tell/${params.senderName}`,
+      To: `tell/${params.toName}`,
+      SessionKey: sessionKey,
+      AccountId: opts.account.accountId,
+      ChatType: "direct",
+      SenderName: params.senderName,
+      SenderId: `tell/${params.senderName}`,
+      Provider: "clawtell",
+      Surface: "clawtell",
+      MessageSid: params.msgId,
+      Timestamp: new Date(params.createdAt),
+      ReplyToId: params.replyToMessageId,
+      Subject: params.subject,
+    });
+    
+    await runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+      ctx: inboundCtx,
+      cfg: opts.config,
+      dispatcherOptions: {
+        deliver: async (payload: any) => {
+          console.log(`[ClawTell] Sending reply from ${params.toName} to ${params.senderName}`);
+          await fetch(`${CLAWTELL_API_BASE}/messages/send`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              to: params.senderName,
+              body: payload.text || payload.content,
+              subject: payload.subject,
+              from_name: params.toName,
+            }),
+            signal: AbortSignal.timeout(30000),
+          });
+        },
+        onError: (err: Error) => {
+          console.error("[ClawTell] Reply delivery error:", err);
+        },
+      },
+    });
+    
+    return true;
+  } catch (err) {
+    console.error(`[ClawTell] Dispatch failed for msg ${params.msgId}:`, err);
+    return false;
+  }
+}
+
+/**
+ * Account-level polling loop (with local queue for failed dispatches)
  */
 async function pollAccountLoop(
   opts: PollOptions,
@@ -311,6 +386,55 @@ async function pollAccountLoop(
   const { account, abortSignal, statusSink } = opts;
   
   while (!abortSignal.aborted) {
+    // ── Phase 3: Retry queued messages first ──
+    try {
+      const queued = await getPending();
+      for (const qm of queued) {
+        if (abortSignal.aborted) break;
+        
+        const ok = await dispatchToAgent(runtime, opts, qm.apiKey, {
+          msgId: qm.id,
+          senderName: qm.from,
+          toName: qm.toName,
+          agentName: qm.agent,
+          messageContent: qm.content,
+          rawBody: qm.rawBody,
+          subject: qm.subject,
+          createdAt: qm.createdAt,
+          replyToMessageId: qm.replyToMessageId,
+        });
+        
+        if (ok) {
+          // ACK on server now that dispatch succeeded
+          try {
+            await batchAck(qm.apiKey, [qm.id]);
+            console.log(`[ClawTell Queue] Delivered queued msg ${qm.id} to agent:${qm.agent}, ACK'd`);
+          } catch (err) {
+            console.error(`[ClawTell Queue] ACK failed for dequeued msg ${qm.id}:`, err);
+          }
+          await dequeue(qm.id);
+        } else {
+          const deadLettered = await markAttempt(qm.id, "dispatch failed on retry");
+          if (deadLettered) {
+            // Notify main agent about dead-lettered message
+            try {
+              await forwardToActiveChannel(
+                runtime,
+                `⚠️ **ClawTell Dead Letter**: Message ${qm.id} from tell/${qm.from} → ${qm.toName} failed after ${qm.attempts} attempts. Last error: ${qm.lastError}`,
+                opts.config,
+                "main"
+              );
+            } catch { /* best effort */ }
+            // ACK to prevent server-side buildup
+            try { await batchAck(qm.apiKey, [qm.id]); } catch { /* best effort */ }
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[ClawTell Queue] Error processing queued messages:", err);
+    }
+    
+    // ── Poll server for new messages ──
     try {
       const messages = await pollAccountMessages(apiKey, { limit: 50, timeout: 5 });
       const ackedIds: string[] = [];
@@ -348,59 +472,43 @@ async function pollAccountLoop(
         }
         
         // Dispatch to agent session
-        try {
-          const sessionKey = `agent:${agentName}:main`;
-          
-          const inboundCtx = runtime.channel.reply.finalizeInboundContext({
-            Body: messageContent,
-            RawBody: msg.body,
-            From: `tell/${senderName}`,
-            To: `tell/${toName}`,
-            SessionKey: sessionKey,
-            AccountId: account.accountId,
-            ChatType: "direct",
-            SenderName: senderName,
-            SenderId: `tell/${senderName}`,
-            Provider: "clawtell",
-            Surface: "clawtell",
-            MessageSid: msg.id,
-            Timestamp: new Date(msg.createdAt),
-            ReplyToId: msg.replyToMessageId,
-            Subject: msg.subject,
-          });
-          
-          await runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-            ctx: inboundCtx,
-            cfg: opts.config,
-            dispatcherOptions: {
-              deliver: async (payload: any) => {
-                console.log(`[ClawTell] Sending reply from ${toName} to ${senderName}`);
-                await fetch(`${CLAWTELL_API_BASE}/messages/send`, {
-                  method: "POST",
-                  headers: {
-                    "Authorization": `Bearer ${apiKey}`,
-                    "Content-Type": "application/json",
-                  },
-                  body: JSON.stringify({
-                    to: senderName,
-                    body: payload.text || payload.content,
-                    subject: payload.subject,
-                    from_name: toName,  // Reply AS the correct name
-                  }),
-                  signal: AbortSignal.timeout(30000),
-                });
-              },
-              onError: (err: Error) => {
-                console.error("[ClawTell] Reply delivery error:", err);
-              },
-            },
-          });
-          
+        const ok = await dispatchToAgent(runtime, opts, apiKey, {
+          msgId: msg.id,
+          senderName,
+          toName,
+          agentName,
+          messageContent,
+          rawBody: msg.body,
+          subject: msg.subject,
+          createdAt: msg.createdAt,
+          replyToMessageId: msg.replyToMessageId,
+        });
+        
+        if (ok) {
           ackedIds.push(msg.id);
-        } catch (err) {
-          console.error(`[ClawTell] Dispatch failed for msg ${msg.id}:`, err);
-          // Don't ACK - will retry next cycle
+        } else if (agentName !== "main") {
+          // Queue for retry (never queue messages to main — main is always running)
+          await enqueue({
+            id: msg.id,
+            from: senderName,
+            toName,
+            agent: agentName,
+            forward: route.forward,
+            content: messageContent,
+            rawBody: msg.body,
+            subject: msg.subject,
+            createdAt: msg.createdAt,
+            queuedAt: new Date().toISOString(),
+            attempts: 1,
+            lastError: "initial dispatch failed",
+            accountId: account.accountId,
+            apiKey,
+            replyToMessageId: msg.replyToMessageId,
+          });
+          // ACK on server — we own delivery now via local queue
+          ackedIds.push(msg.id);
         }
+        // If main agent dispatch fails, don't ACK — server will retry next poll
       }
       
       // Batch ACK successful messages
