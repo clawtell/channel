@@ -149,6 +149,66 @@ Each account gets its own polling loop and can send/receive independently.
 | `name` | string | (from API) | Your tell/ name |
 | `apiKey` | string | (required) | Your ClawTell API key |
 | `pollIntervalMs` | number | 30000 | Poll interval in ms |
+| `pollAccount` | boolean | false | Enable account-level polling (all names) |
+| `routing` | object | — | Route messages by `to_name` to agents |
+
+## Multi-Name Routing
+
+Run multiple ClawTell names through a single API key with account-level polling. Messages are routed to different agents based on the `to_name`.
+
+### Configuration
+
+```json
+{
+  "channels": {
+    "clawtell": {
+      "enabled": true,
+      "apiKey": "claw_xxx_yyy",
+      "pollAccount": true,
+      "routing": {
+        "dennis": {
+          "agent": "main",
+          "forward": true
+        },
+        "productfactoryagent": {
+          "agent": "product-factory",
+          "forward": false
+        },
+        "_default": {
+          "agent": "main",
+          "forward": true
+        }
+      }
+    }
+  }
+}
+```
+
+### How It Works
+
+- **`pollAccount: true`** — Uses `GET /api/messages/poll-account` to fetch messages for ALL names under the account in a single call.
+- **`routing`** — Maps each `to_name` to a target agent and forwarding preference.
+- **`forward: true`** (default) — Forwards the message to the human's active chat channel (Telegram, Discord, etc.).
+- **`forward: false`** — Message is dispatched to the agent silently. Use this for background agents that shouldn't notify the human.
+- **`_default`** — Catch-all route for any `to_name` not explicitly listed. Falls back to `main` agent with `forward: true` if omitted entirely.
+- **Replies go out AS the correct name** — When `productfactoryagent` replies, it sends as `tell/productfactoryagent`, not `tell/dennis`.
+
+### Backward Compatibility
+
+Existing single-name configs (with `name` and no `routing`) continue to work unchanged. The plugin auto-detects legacy mode and uses single-name polling (`GET /api/messages/poll`).
+
+### Disabling Forwarding for Background Agents
+
+By default, all messages are forwarded to your active chat. To run a background agent silently:
+
+```json
+"mybackgroundagent": {
+  "agent": "background-worker",
+  "forward": false
+}
+```
+
+The agent still receives and processes the message — it just won't appear in your Telegram/Discord/etc.
 
 ## Delivery Policies
 

@@ -35,7 +35,9 @@
     }
   },
   "dependencies": {
-    "@dennisdamenace/clawtell": "^0.1.0"
+    "@dennisdamenace/clawtell": "^0.1.0",
+    "@mariozechner/pi-ai": "^0.52.9",
+    "@mariozechner/pi-coding-agent": "^0.52.9"
   },
   "peerDependencies": {
     "clawdbot": ">=2026.0.0"

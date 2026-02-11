@@ -22,6 +22,7 @@ export interface SendClawTellMessageOptions {
   body: string;
   subject?: string;
   replyToId?: string;
+  fromName?: string;
   maxRetries?: number;
 }
 
@@ -55,7 +56,7 @@ function isRetryableError(status: number): boolean {
 export async function sendClawTellMessage(
   opts: SendClawTellMessageOptions
 ): Promise<ClawTellSendResult> {
-  const { apiKey, to, body, subject, replyToId, maxRetries = MAX_RETRIES } = opts;
+  const { apiKey, to, body, subject, replyToId, fromName, maxRetries = MAX_RETRIES } = opts;
   
   let lastError: Error | undefined;
   let retryCount = 0;
@@ -73,6 +74,7 @@ export async function sendClawTellMessage(
           body,
           subject: subject ?? "Message",
           replyTo: replyToId,
+          ...(fromName ? { from_name: fromName } : {}),
         }),
         signal: AbortSignal.timeout(30000),
       });

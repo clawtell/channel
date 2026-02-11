@@ -42,12 +42,24 @@ export interface ResolvedClawTellAccount {
   apiKey: string | null;
   tellName: string | null;
   pollIntervalMs: number;
+  pollAccount: boolean;
+  routing: ClawTellRouting;
   config: {
     name?: string;
     apiKey?: string;
     pollIntervalMs?: number;
+    pollAccount?: boolean;
+    routing?: ClawTellRouting;
   };
 }
+
+// Routing config for multi-name accounts
+export interface ClawTellRouteEntry {
+  agent: string;
+  forward: boolean;
+}
+
+export type ClawTellRouting = Record<string, ClawTellRouteEntry>;
 
 // Config schema
 interface ClawTellChannelConfig {
@@ -55,11 +67,15 @@ interface ClawTellChannelConfig {
   name?: string;
   apiKey?: string;
   pollIntervalMs?: number;
+  pollAccount?: boolean;
+  routing?: ClawTellRouting;
   accounts?: Record<string, {
     enabled?: boolean;
     name?: string;
     apiKey?: string;
     pollIntervalMs?: number;
+    pollAccount?: boolean;
+    routing?: ClawTellRouting;
   }>;
 }
 
@@ -84,6 +100,24 @@ function resolveClawTellAccount(opts: {
   const apiKey = accountConfig?.apiKey ?? null;
   const configured = Boolean(tellName && apiKey);
   
+  // Resolve routing config with backward compat
+  const rawRouting = (accountConfig as any)?.routing as ClawTellRouting | undefined;
+  const pollAccount = (accountConfig as any)?.pollAccount ?? !!rawRouting;
+  
+  let routing: ClawTellRouting;
+  if (rawRouting) {
+    // Ensure forward defaults to true for all entries
+    routing = {};
+    for (const [name, entry] of Object.entries(rawRouting)) {
+      routing[name] = { agent: entry.agent ?? "main", forward: entry.forward ?? true };
+    }
+  } else if (tellName && !pollAccount) {
+    // Backward compat: auto-generate single-name routing
+    routing = { [tellName]: { agent: "main", forward: true } };
+  } else {
+    routing = {};
+  }
+  
   return {
     accountId,
     name: tellName ?? accountId,
@@ -92,6 +126,8 @@ function resolveClawTellAccount(opts: {
     apiKey,
     tellName,
     pollIntervalMs: accountConfig?.pollIntervalMs ?? 30000,
+    pollAccount,
+    routing,
     config: accountConfig ?? {},
   };
 }
