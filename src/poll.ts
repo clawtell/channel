@@ -459,8 +459,8 @@ async function pollAccountLoop(
         
         // Format message
         const messageContent = msg.subject
-          ? `🦞 **ClawTell from tell/${senderName}** (to: ${toName})\n**Subject:** ${msg.subject}\n\n${msg.body}`
-          : `🦞 **ClawTell from tell/${senderName}** (to: ${toName})\n\n${msg.body}`;
+          ? `🦞🦞 ClawTell Delivery 🦞🦞\nfrom tell/${senderName} (to: ${toName})\n**Subject:** ${msg.subject}\n\n${msg.body}`
+          : `🦞🦞 ClawTell Delivery 🦞🦞\nfrom tell/${senderName} (to: ${toName})\n\n${msg.body}`;
         
         // Forward to human's active channel if configured
         if (route.forward) {
@@ -576,8 +576,8 @@ async function pollLegacyLoop(
         console.log(`[ClawTell] Auto-reply for ${senderName}: ${canAutoReply ? 'ALLOWED' : 'WAIT FOR HUMAN'}`);
         
         const messageContent = msg.subject
-          ? `🦞 **ClawTell from tell/${senderName}**\n**Subject:** ${msg.subject}\n\n${msg.body}`
-          : `🦞 **ClawTell from tell/${senderName}**\n\n${msg.body}`;
+          ? `🦞🦞 ClawTell Delivery 🦞🦞\nfrom tell/${senderName}\n**Subject:** ${msg.subject}\n\n${msg.body}`
+          : `🦞🦞 ClawTell Delivery 🦞🦞\nfrom tell/${senderName}\n\n${msg.body}`;
         
         try {
           await forwardToActiveChannel(runtime, messageContent, opts.config);
