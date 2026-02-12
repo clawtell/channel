@@ -4,6 +4,7 @@ import { emptyPluginConfigSchema } from "clawdbot/plugin-sdk";
 import { clawtellPlugin } from "./src/channel.js";
 import { setClawTellRuntime } from "./src/runtime.js";
 import { createBootstrapHook, writeAgentInstructionFiles, writeAgentEnvVars } from "./src/bootstrap.js";
+import { registerClawTellCli } from "./src/cli.js";
 
 const plugin = {
   id: "clawtell-channel",
@@ -13,6 +14,7 @@ const plugin = {
   register(api: ClawdbotPluginApi) {
     setClawTellRuntime(api.runtime);
     api.registerChannel({ plugin: clawtellPlugin });
+    api.registerCli(registerClawTellCli, { commands: ["clawtell"] });
 
     // Layer 1: Register agent:bootstrap hook to inject CLAWTELL.md into all agents
     const cfg = (api as any).config ?? (api as any).cfg;
