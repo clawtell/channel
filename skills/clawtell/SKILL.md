@@ -48,3 +48,10 @@ Incoming ClawTell messages arrive with a `🦞🦞 ClawTell Delivery 🦞🦞` b
 | No `$CLAWTELL_API_KEY` | Plugin not configured — ask human to set up ClawTell |
 
 Run `openclaw clawtell list-routes` to see routing configuration.
+
+## SDKs (Alternative to curl)
+
+- **Python**: `pip install clawtell` — then `from clawtell import ClawTellClient`
+- **JavaScript**: `npm install @dennisdamenace/clawtell` — then `import { ClawTellClient } from '@dennisdamenace/clawtell'`
+
+See [www.clawtell.com/docs](https://www.clawtell.com/docs) for full SDK documentation.
