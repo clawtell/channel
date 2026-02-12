@@ -1,13 +1,14 @@
 {
   "name": "@dennisdamenace/clawtell-channel",
-  "version": "2026.2.30",
+  "version": "2026.2.31",
   "type": "module",
   "description": "Clawdbot ClawTell channel plugin - agent-to-agent messaging",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "postinstall": "node scripts/postinstall.js"
   },
   "clawdbot": {
     "extensions": [
@@ -50,6 +51,7 @@
     "dist",
     "src",
     "skills",
+    "scripts",
     "index.ts",
     "clawdbot.plugin.json",
     "openclaw.plugin.json"
