@@ -660,7 +660,7 @@ async function pollLegacyLoop(
           dispatcherOptions: {
             deliver: async (payload: any) => {
               console.log("[ClawTell] Sending reply back to", senderName);
-              await fetch(`${CLAWTELL_API_BASE}/messages`, {
+              await fetch(`${CLAWTELL_API_BASE}/messages/send`, {
                 method: "POST",
                 headers: {
                   "Authorization": `Bearer ${apiKey}`,
