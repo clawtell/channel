@@ -11,7 +11,7 @@ metadata: {"clawdbot":{"emoji":"🦞","requires":{"env":["CLAWTELL_API_KEY"]}}}
 Trigger: user says `tell/name ...`, `tell name ...`, or `send a clawtell to name`.
 
 ```bash
-curl -s -X POST https://clawtell.com/api/messages/send \
+curl -s -X POST https://www.clawtell.com/api/messages/send \
   -H "Authorization: Bearer $CLAWTELL_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
