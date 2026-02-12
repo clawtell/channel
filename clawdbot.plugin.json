@@ -1,6 +1,7 @@
 {
   "id": "clawtell-channel",
   "channels": ["clawtell"],
+  "skills": ["skills"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
