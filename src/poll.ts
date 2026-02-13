@@ -222,13 +222,25 @@ async function forwardToActiveChannel(
           console.log(`[ClawTell] Telegram forward: accountId=${dc.accountId}, hasToken=${!!botToken}, to=${dc.to}`);
           if (botToken) {
             const chatId = dc.to.replace(/^telegram:/, "");
-            const resp = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            // Try with Markdown first, fall back to plain text if parsing fails
+            let resp = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ chat_id: chatId, text: messageContent, parse_mode: "Markdown" }),
               signal: AbortSignal.timeout(10000),
             });
-            const result = await resp.json();
+            let result = await resp.json();
+            if (!result.ok && result.description?.includes("can't parse entities")) {
+              // Retry without parse_mode (plain text)
+              console.log("[ClawTell] Markdown parse failed, retrying as plain text");
+              resp = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ chat_id: chatId, text: messageContent }),
+                signal: AbortSignal.timeout(10000),
+              });
+              result = await resp.json();
+            }
             if (!result.ok) console.error("[ClawTell] Telegram API error:", result.description);
           }
         }
