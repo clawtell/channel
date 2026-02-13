@@ -541,8 +541,8 @@ async function pollAccountLoop(
         
         // Format message
         const messageContent = msg.subject
-          ? `🦞🦞 ClawTell Delivery 🦞🦞\nfrom tell/${senderName} (to: ${toName})\n**Subject:** ${msg.subject}\n\n${msg.body}`
-          : `🦞🦞 ClawTell Delivery 🦞🦞\nfrom tell/${senderName} (to: ${toName})\n\n${msg.body}`;
+          ? `🦞🦞 *ClawTell Delivery* 🦞🦞\n\nfrom *tell/${senderName}*\nto: *${toName}*\n\n*Subject:* ${msg.subject}\n\n${msg.body}`
+          : `🦞🦞 *ClawTell Delivery* 🦞🦞\n\nfrom *tell/${senderName}*\nto: *${toName}*\n\n${msg.body}`;
         
         // Forward to human's active channel if configured
         if (route.forward) {
