@@ -153,6 +153,38 @@ async function getDeliveryContext(agentName: string = "main", config?: ClawdbotC
       }
     }
 
+    // Fallback 3: use explicit forwardTo config (per-route, then global)
+    if (config) {
+      const clawtellConfig = (config.channels as any)?.clawtell;
+      
+      // Per-route: check all routing entries for this agent
+      if (clawtellConfig?.routing) {
+        for (const [name, entry] of Object.entries(clawtellConfig.routing)) {
+          const routeEntry = entry as any;
+          if (routeEntry?.agent === agentName && routeEntry?.forwardTo?.chatId) {
+            const ft = routeEntry.forwardTo;
+            console.log(`[ClawTell] Using per-route forwardTo for ${name}: ${ft.channel}:${ft.chatId} (account=${ft.accountId})`);
+            return {
+              channel: ft.channel || "telegram",
+              to: `${ft.channel || "telegram"}:${ft.chatId}`,
+              accountId: ft.accountId || "default"
+            };
+          }
+        }
+      }
+      
+      // Global fallback
+      const forwardTo = clawtellConfig?.forwardTo;
+      if (forwardTo?.channel && forwardTo?.chatId) {
+        console.log(`[ClawTell] Using global forwardTo config: ${forwardTo.channel}:${forwardTo.chatId}`);
+        return {
+          channel: forwardTo.channel,
+          to: `${forwardTo.channel}:${forwardTo.chatId}`,
+          accountId: forwardTo.accountId || "default"
+        };
+      }
+    }
+
     return null;
   } catch {
     return null;
@@ -181,12 +213,13 @@ async function forwardToActiveChannel(
   try {
     switch (dc.channel) {
       case "telegram":
-        if (runtime.channel?.telegram?.sendMessageTelegram) {
-          await runtime.channel.telegram.sendMessageTelegram(dc.to, messageContent, sendOpts);
-        } else {
+        // Always use direct Telegram API for forwarding — runtime.sendMessageTelegram
+        // may not respect accountId correctly for cross-agent forwarding
+        {
           const telegramConfig = (config.channels as any)?.telegram;
           const account = telegramConfig?.accounts?.[dc.accountId || "default"] || telegramConfig;
           const botToken = account?.botToken;
+          console.log(`[ClawTell] Telegram forward: accountId=${dc.accountId}, hasToken=${!!botToken}, to=${dc.to}`);
           if (botToken) {
             const chatId = dc.to.replace(/^telegram:/, "");
             const resp = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
