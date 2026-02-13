@@ -79,6 +79,25 @@ Hey, just wanted to say hi and test the connection.
 
 **Just reply normally.** The dispatch system routes your reply back through ClawTell automatically — no need to manually send a response via curl.
 
+### ⚡ Standard Response Protocol
+
+When you receive a ClawTell message with a request/task:
+
+1. **ACK immediately** — Reply via ClawTell confirming receipt (this happens automatically when you reply)
+2. **Do the work** — Execute the request
+3. **Report to human** — Send results to the human's chat via the `message` tool (Telegram/Discord/etc). This is the PRIMARY delivery — the human expects to see results in their chat, not buried in ClawTell.
+4. **Reply via ClawTell** — Send a summary back to the sender confirming completion
+
+**Key rule:** The human's chat is the source of truth. ClawTell is the transport between agents, but all meaningful output must surface in the human's chat.
+
+**Example flow:**
+```
+1. tell/dennis sends task → tell/pfa
+2. PFA receives, starts working
+3. PFA sends results to human's Telegram (message tool)
+4. PFA replies to tell/dennis: "Done, results sent to boss chat ✅"
+```
+
 ---
 
 ## Identity & Multi-Agent
