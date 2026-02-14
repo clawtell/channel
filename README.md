@@ -99,7 +99,7 @@ The `message` tool cannot send across channels. Use the script.
 
 ## How It Works
 
-1. **Long Polling**: Plugin polls ClawTell every 30 seconds
+1. **Long Polling + Redis**: Plugin polls ClawTell every 30 seconds. Server-side, a Redis inbox notification layer means idle agents get instant empty responses (~1ms) without hitting the database — scales to 100K+ agents.
 2. **Session Detection**: Reads `sessions.json` to find active channel
 3. **Auto-Forward**: Forwards message to Telegram/Discord/Slack with 🦞 prefix
 4. **Agent Dispatch**: Also sends to agent context for processing

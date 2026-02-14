@@ -9,6 +9,7 @@
  */
 
 import * as fs from "node:fs/promises";
+import * as os from "node:os";
 import * as path from "node:path";
 import type { ClawdbotConfig } from "clawdbot/plugin-sdk";
 import type { ResolvedClawTellAccount, ClawTellRouteEntry } from "./channel.js";
@@ -26,7 +27,167 @@ interface ClawTellMessage {
   createdAt: string;
   replyToMessageId?: string;
   threadId?: string;
-  attachments?: unknown[];
+  attachments?: ClawTellAttachment[];
+}
+
+interface ClawTellAttachment {
+  fileId: string;
+  filename: string;
+  mime_type: string;
+}
+
+interface ResolvedAttachment {
+  filename: string;
+  mime_type: string;
+  localPath: string;
+}
+
+/** Maximum attachment size: 20 MB */
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+
+/**
+ * Fetch a signed URL for a ClawTell file, download it to a temp path.
+ * Returns null on failure (caller should continue without the attachment).
+ */
+async function resolveAttachment(
+  apiKey: string,
+  attachment: ClawTellAttachment
+): Promise<ResolvedAttachment | null> {
+  // Validate fileId — must be UUID-like (alphanumeric + hyphens only), no path traversal
+  if (!attachment.fileId || attachment.fileId.length > 100 || !/^[a-zA-Z0-9_-]+$/.test(attachment.fileId)) {
+    console.error(`[ClawTell] Invalid fileId rejected`);
+    return null;
+  }
+  const safeFileId = attachment.fileId;
+
+  try {
+    // Step 1: Get signed URL from ClawTell API (validates requester authorization)
+    const resp = await fetch(`${CLAWTELL_API_BASE}/files/${safeFileId}`, {
+      headers: { "Authorization": `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!resp.ok) {
+      console.error(`[ClawTell] Failed to get signed URL for file ${safeFileId}: HTTP ${resp.status}`);
+      return null;
+    }
+    const data = await resp.json() as any;
+    const signedUrl = data.signedUrl || data.url;
+    if (!signedUrl) {
+      console.error(`[ClawTell] No signed URL in response for file ${safeFileId}`);
+      return null;
+    }
+
+    // Step 2: Download file to temp directory with size limit
+    const tmpDir = path.join(os.tmpdir(), "clawtell-attachments");
+    await fs.mkdir(tmpDir, { recursive: true });
+    const safeName = attachment.filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 200);
+    const localPath = path.join(tmpDir, `${safeFileId}_${safeName}`);
+
+    const dlResp = await fetch(signedUrl, { signal: AbortSignal.timeout(60000) });
+    if (!dlResp.ok || !dlResp.body) {
+      console.error(`[ClawTell] Failed to download file from signed URL: HTTP ${dlResp.status}`);
+      return null;
+    }
+
+    // Check content-length before downloading
+    const contentLength = parseInt(dlResp.headers.get("content-length") || "0", 10);
+    if (contentLength > MAX_ATTACHMENT_BYTES) {
+      console.error(`[ClawTell] Attachment too large: ${contentLength} bytes (max ${MAX_ATTACHMENT_BYTES})`);
+      return null;
+    }
+
+    const buffer = Buffer.from(await dlResp.arrayBuffer());
+    if (buffer.length > MAX_ATTACHMENT_BYTES) {
+      console.error(`[ClawTell] Attachment too large after download: ${buffer.length} bytes`);
+      return null;
+    }
+    await fs.writeFile(localPath, buffer);
+
+    // signedUrl is NOT stored — it's ephemeral and must not leak
+    console.log(`[ClawTell] Downloaded attachment: ${safeName} (${buffer.length} bytes)`);
+    return { filename: attachment.filename, mime_type: attachment.mime_type, localPath };
+  } catch (err) {
+    console.error(`[ClawTell] Error resolving attachment ${safeFileId}:`, err);
+    return null;
+  }
+}
+
+/**
+ * Send attachments to a Telegram chat via Bot API.
+ */
+async function sendAttachmentsToTelegram(
+  botToken: string,
+  chatId: string,
+  attachments: ResolvedAttachment[],
+  caption?: string
+): Promise<void> {
+  for (let i = 0; i < attachments.length; i++) {
+    const att = attachments[i];
+    const fileBuffer = await fs.readFile(att.localPath);
+    const formData = new FormData();
+    formData.append("chat_id", chatId);
+
+    // Only add caption to the first attachment
+    if (i === 0 && caption) {
+      formData.append("caption", caption);
+    }
+
+    const blob = new Blob([fileBuffer], { type: att.mime_type });
+    const isImage = att.mime_type.startsWith("image/");
+    const endpoint = isImage ? "sendPhoto" : "sendDocument";
+    const fieldName = isImage ? "photo" : "document";
+    formData.append(fieldName, blob, att.filename);
+
+    const resp = await fetch(`https://api.telegram.org/bot${botToken}/${endpoint}`, {
+      method: "POST",
+      body: formData,
+      signal: AbortSignal.timeout(30000),
+    });
+    const result = await resp.json() as any;
+    if (!result.ok) {
+      console.error(`[ClawTell] Telegram ${endpoint} failed:`, result.description);
+    } else {
+      console.log(`[ClawTell] Telegram ${endpoint} OK: ${att.filename} (${fileBuffer.length} bytes) sent to ${chatId}`);
+    }
+  }
+}
+
+/**
+ * Clean up downloaded attachment files.
+ */
+async function cleanupAttachments(attachments: ResolvedAttachment[]): Promise<void> {
+  for (const att of attachments) {
+    try { await fs.unlink(att.localPath); } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Resolve all attachments for a message, returning resolved ones and attachment text for agent dispatch.
+ */
+async function processAttachments(
+  apiKey: string,
+  rawAttachments: ClawTellAttachment[] | undefined
+): Promise<{ resolved: ResolvedAttachment[]; textSuffix: string }> {
+  console.log(`[ClawTell] processAttachments: ${rawAttachments?.length ?? 0} raw attachments`);
+  if (!rawAttachments || rawAttachments.length === 0) {
+    return { resolved: [], textSuffix: "" };
+  }
+
+  const resolved: ResolvedAttachment[] = [];
+  for (const att of rawAttachments) {
+    if (!att.fileId) continue;
+    const r = await resolveAttachment(apiKey, att);
+    if (r) resolved.push(r);
+  }
+
+  if (resolved.length === 0) {
+    return { resolved: [], textSuffix: "" };
+  }
+
+  // Build text suffix for agent dispatch (include local paths so agent can access files)
+  const lines = resolved.map(r => `📎 ${r.filename} (${r.mime_type}) → ${r.localPath}`);
+  const textSuffix = `\n\n**Attachments:**\n${lines.join("\n")}`;
+  return { resolved, textSuffix };
 }
 
 interface PollOptions {
@@ -198,7 +359,8 @@ async function forwardToActiveChannel(
   runtime: ClawTellRuntime,
   messageContent: string,
   config: ClawdbotConfig,
-  agentName: string = "main"
+  agentName: string = "main",
+  attachments: ResolvedAttachment[] = []
 ): Promise<void> {
   const dc = await getDeliveryContext(agentName, config);
   
@@ -242,6 +404,12 @@ async function forwardToActiveChannel(
               result = await resp.json();
             }
             if (!result.ok) console.error("[ClawTell] Telegram API error:", result.description);
+            // Send attachments if any
+            console.log(`[ClawTell] Attachment check: ${attachments.length} resolved attachments`);
+            if (attachments.length > 0) {
+              console.log(`[ClawTell] Sending ${attachments.length} attachments to Telegram chatId=${chatId}`);
+              await sendAttachmentsToTelegram(botToken, chatId, attachments);
+            }
           }
         }
         break;
@@ -549,17 +717,23 @@ async function pollAccountLoop(
         const route = resolveRoute(toName, account);
         const agentName = route.agent || "main";
         
-        console.log(`[ClawTell] Message ${msg.id}: ${senderName} → ${toName} → agent:${agentName} (forward:${route.forward})`);
+        console.log(`[ClawTell] Message ${msg.id}: ${senderName} → ${toName} → agent:${agentName} (forward:${route.forward}) ATTS=${msg.attachments?.length ?? 0}`);
+        
+        // Process attachments
+        const { resolved: resolvedAttachments, textSuffix: attachmentSuffix } = await processAttachments(apiKey, msg.attachments);
         
         // Format message
         const messageContent = msg.subject
           ? `🦞🦞 *ClawTell Delivery* 🦞🦞\n\nfrom *tell/${senderName}*\nto: *${toName}*\n\n*Subject:* ${msg.subject}\n\n${msg.body}`
           : `🦞🦞 *ClawTell Delivery* 🦞🦞\n\nfrom *tell/${senderName}*\nto: *${toName}*\n\n${msg.body}`;
         
+        // Message content for agent includes attachment paths
+        const agentMessageContent = messageContent + attachmentSuffix;
+        
         // Forward to human's active channel if configured
         if (route.forward) {
           try {
-            await forwardToActiveChannel(runtime, messageContent, opts.config, agentName);
+            await forwardToActiveChannel(runtime, messageContent, opts.config, agentName, resolvedAttachments);
           } catch (err) {
             console.error("[ClawTell] Forward failed:", err);
           }
@@ -572,7 +746,7 @@ async function pollAccountLoop(
           senderName,
           toName,
           agentName,
-          messageContent,
+          messageContent: agentMessageContent,
           rawBody: msg.body,
           subject: msg.subject,
           createdAt: msg.createdAt,
@@ -605,6 +779,12 @@ async function pollAccountLoop(
           ackedIds.push(msg.id);
         }
         // If main agent dispatch fails, don't ACK — server will retry next poll
+        
+        // Clean up temp files (after dispatch, agent has had chance to read them)
+        if (resolvedAttachments.length > 0) {
+          // Delay cleanup slightly so agent session can read files
+          setTimeout(() => cleanupAttachments(resolvedAttachments), 60000);
+        }
       }
       
       // Batch ACK successful messages
@@ -671,18 +851,23 @@ async function pollLegacyLoop(
         const canAutoReply = isAutoReplyAllowed(senderName, opts.config);
         console.log(`[ClawTell] Auto-reply for ${senderName}: ${canAutoReply ? 'ALLOWED' : 'WAIT FOR HUMAN'}`);
         
+        // Process attachments
+        const { resolved: resolvedAttachments, textSuffix: attachmentSuffix } = await processAttachments(apiKey, msg.attachments);
+        
         const messageContent = msg.subject
           ? `🦞🦞 ClawTell Delivery 🦞🦞\nfrom tell/${senderName}\n**Subject:** ${msg.subject}\n\n${msg.body}`
           : `🦞🦞 ClawTell Delivery 🦞🦞\nfrom tell/${senderName}\n\n${msg.body}`;
         
+        const agentMessageContent = messageContent + attachmentSuffix;
+        
         try {
-          await forwardToActiveChannel(runtime, messageContent, opts.config);
+          await forwardToActiveChannel(runtime, messageContent, opts.config, "main", resolvedAttachments);
         } catch (err) {
           console.error("[ClawTell] Forward failed:", err);
         }
         
         const inboundCtx = runtime.channel.reply.finalizeInboundContext({
-          Body: messageContent,
+          Body: agentMessageContent,
           RawBody: msg.body,
           From: `tell/${senderName}`,
           To: `tell/${account.tellName}`,
@@ -727,6 +912,9 @@ async function pollLegacyLoop(
         });
         
         await markAsRead(apiKey, msg.id);
+        if (resolvedAttachments.length > 0) {
+          setTimeout(() => cleanupAttachments(resolvedAttachments), 60000);
+        }
         statusSink({ lastInboundAt: new Date().toISOString() });
       }
     } catch (error) {
