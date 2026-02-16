@@ -553,6 +553,7 @@ export async function pollClawTellInbox(opts: PollOptions): Promise<void> {
   statusSink({ running: true, lastStartAt: new Date().toISOString() });
   
   if (account.sseUrl && account.pollAccount) {
+    // SSE mode with fallback to HTTP polling
     await sseAccountLoop(opts, runtime, apiKey, pollIntervalMs);
   } else if (account.pollAccount) {
     await pollAccountLoop(opts, runtime, apiKey, pollIntervalMs);
@@ -561,6 +562,143 @@ export async function pollClawTellInbox(opts: PollOptions): Promise<void> {
   }
   
   statusSink({ running: false, lastStopAt: new Date().toISOString() });
+}
+
+/**
+ * Dispatch a message to an agent session. Returns true on success.
+ */
+async function dispatchToAgent(
+  runtime: ClawTellRuntime,
+  opts: PollOptions,
+  apiKey: string,        // account-level key (for polling/ACK)
+  replyApiKey: string,   // per-route key (for sending replies back)
+  params: {
+    msgId: string;
+    senderName: string;
+    toName: string;
+    agentName: string;
+    messageContent: string;
+    rawBody: string;
+    subject?: string;
+    createdAt: string;
+    replyToMessageId?: string;
+  }
+): Promise<boolean> {
+  try {
+    const sessionKey = `agent:${params.agentName}:main`;
+    
+    // Resolve the correct accountId for this agent's Telegram forwarding
+    // so OpenClaw's session delivery uses the right bot token
+    const routeEntry = (opts.config.channels as any)?.clawtell?.routing?.[params.toName];
+    const forwardAccountId = routeEntry?.forwardTo?.accountId || opts.account.accountId;
+    const forwardChatId = routeEntry?.forwardTo?.chatId;
+    const forwardChannel = routeEntry?.forwardTo?.channel || "telegram";
+    
+    const inboundCtx = runtime.channel.reply.finalizeInboundContext({
+      Body: params.messageContent,
+      RawBody: params.rawBody,
+      From: `tell/${params.senderName}`,
+      // Use the Telegram address if forwarding is configured, so OpenClaw's
+      // session delivery uses the correct bot instead of falling back to default
+      To: forwardChatId ? `${forwardChannel}:${forwardChatId}` : `tell/${params.toName}`,
+      SessionKey: sessionKey,
+      AccountId: forwardAccountId,
+      ChatType: "direct",
+      SenderName: params.senderName,
+      SenderId: `tell/${params.senderName}`,
+      Provider: "clawtell",
+      Surface: "clawtell",
+      MessageSid: params.msgId,
+      Timestamp: new Date(params.createdAt),
+      ReplyToId: params.replyToMessageId,
+      Subject: params.subject,
+    });
+    
+    await runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+      ctx: inboundCtx,
+      cfg: opts.config,
+      dispatcherOptions: {
+        deliver: async (payload: any) => {
+          const replyText = payload.text || payload.content;
+          console.log(`[ClawTell] Sending reply from ${params.toName} to ${params.senderName} (key=${replyApiKey === apiKey ? 'account' : 'route-specific'})`);
+          
+          // 1. Send reply back via ClawTell
+          await fetch(`${CLAWTELL_API_BASE}/messages/send`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${replyApiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              to: params.senderName,
+              body: replyText,
+              subject: payload.subject,
+              from_name: params.toName,
+            }),
+            signal: AbortSignal.timeout(30000),
+          });
+          
+          // 2. Also forward the reply to human's Telegram using the agent's configured bot
+          if (params.agentName !== "main") {
+            try {
+              const replyForward = `🦞🦞 ClawTell Delivery 🦞🦞\n\nfrom tell/${params.toName}\nto: ${params.senderName}\n\n${replyText}`;
+              // Forward to the RECIPIENT's bot, not the sender's
+              // Reply goes FROM params.toName TO params.senderName
+              // So resolve routing for the recipient (params.senderName) to find their agent/bot
+              const recipientRoute = resolveRoute(params.senderName, opts.account);
+              const recipientAgent = recipientRoute.agent || "main";
+              await forwardToActiveChannel(runtime, replyForward, opts.config, recipientAgent, []);
+              console.log(`[ClawTell] Reply forwarded to Telegram for recipient:${params.senderName} (agent:${recipientAgent})`);
+            } catch (fwdErr) {
+              console.error("[ClawTell] Reply forward to Telegram failed:", fwdErr);
+            }
+          }
+        },
+        onError: (err: Error) => {
+          console.error("[ClawTell] Reply delivery error:", err);
+        },
+      },
+    });
+    
+    return true;
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    
+    // Fallback: if direct dispatch fails (e.g. "Session file path must be within sessions directory"),
+    // use the local gateway sessions API instead
+    if (errMsg.includes("sessions directory") || errMsg.includes("Session file path")) {
+      console.log(`[ClawTell] Direct dispatch failed for agent:${params.agentName}, falling back to gateway sessions API`);
+      try {
+        const gatewayPort = process.env.OPENCLAW_PORT || "18789";
+        const gatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN || "";
+        const resp = await fetch(`http://127.0.0.1:${gatewayPort}/api/sessions/send`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(gatewayToken ? { "Authorization": `Bearer ${gatewayToken}` } : {}),
+          },
+          body: JSON.stringify({
+            sessionKey: `agent:${params.agentName}:main`,
+            message: params.messageContent,
+          }),
+          signal: AbortSignal.timeout(120000),
+        });
+        if (resp.ok) {
+          console.log(`[ClawTell] Gateway fallback dispatch succeeded for agent:${params.agentName}`);
+          return true;
+        } else {
+          const body = await resp.text();
+          console.error(`[ClawTell] Gateway fallback failed: HTTP ${resp.status} ${body}`);
+        }
+      } catch (fallbackErr) {
+        console.error(`[ClawTell] Gateway fallback error:`, fallbackErr);
+      }
+    }
+    
+    // CLI fallback handled in compiled JS
+    console.error(`[ClawTell] Dispatch failed for msg ${params.msgId}:`, err);
+    return false;
+  }
 }
 
 /**
@@ -577,6 +715,174 @@ async function batchAckSse(sseUrl: string, apiKey: string, messageIds: string[])
     body: JSON.stringify({ messageIds }),
     signal: AbortSignal.timeout(10000),
   });
+}
+
+/**
+ * SSE-based account polling loop.
+ * Connects to the SSE server for real-time message delivery.
+ * Falls back to HTTP polling if SSE connection fails.
+ */
+async function sseAccountLoop(
+  opts: PollOptions,
+  runtime: ClawTellRuntime,
+  apiKey: string,
+  pollIntervalMs: number
+): Promise<void> {
+  const { account, abortSignal, statusSink } = opts;
+  const sseUrl = account.sseUrl!;
+  let consecutiveFailures = 0;
+  const MAX_SSE_FAILURES = 3;
+
+  while (!abortSignal.aborted) {
+    // ── Retry queued messages first (same as pollAccountLoop) ──
+    try {
+      const queued = await getPending();
+      for (const qm of queued) {
+        if (abortSignal.aborted) break;
+        const ok = await dispatchToAgent(runtime, opts, qm.apiKey, qm.replyApiKey || qm.apiKey, {
+          msgId: qm.id,
+          senderName: qm.from,
+          toName: qm.toName,
+          agentName: qm.agent,
+          messageContent: qm.content,
+          rawBody: qm.rawBody,
+          subject: qm.subject,
+          createdAt: qm.createdAt,
+          replyToMessageId: qm.replyToMessageId,
+        });
+        if (ok) {
+          try { await batchAckSse(sseUrl, qm.apiKey, [qm.id]); } catch {
+            try { await batchAck(qm.apiKey, [qm.id]); } catch { /* best effort */ }
+          }
+          await dequeue(qm.id);
+          console.log(`[ClawTell SSE] Delivered queued msg ${qm.id} to agent:${qm.agent}`);
+        } else {
+          const deadLettered = await markAttempt(qm.id, "dispatch failed on retry");
+          if (deadLettered) {
+            try {
+              await forwardToActiveChannel(runtime,
+                `⚠️ **ClawTell Dead Letter**: Message ${qm.id} from tell/${qm.from} → ${qm.toName} failed after ${qm.attempts} attempts.`,
+                opts.config, "main");
+            } catch { /* best effort */ }
+            try { await batchAckSse(sseUrl, qm.apiKey, [qm.id]); } catch {
+              try { await batchAck(qm.apiKey, [qm.id]); } catch { /* best effort */ }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[ClawTell SSE Queue] Error processing queued messages:", err);
+    }
+
+    // ── SSE connection ──
+    if (consecutiveFailures >= MAX_SSE_FAILURES) {
+      console.log(`[ClawTell SSE] ${consecutiveFailures} consecutive failures, falling back to HTTP polling for this cycle`);
+      statusSink({ sseStatus: "fallback-polling" });
+      // Do one HTTP poll cycle then try SSE again
+      try {
+        const messages = await pollAccountMessages(apiKey, { limit: 50, timeout: 5 });
+        if (messages.length > 0) {
+          await processAccountMessages(opts, runtime, apiKey, sseUrl, messages);
+          statusSink({ lastInboundAt: new Date().toISOString() });
+        }
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error("[ClawTell SSE] Fallback poll error:", errorMsg);
+      }
+      consecutiveFailures = 0; // Reset and try SSE again
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(resolve, pollIntervalMs);
+        abortSignal.addEventListener("abort", () => { clearTimeout(timeout); resolve(); }, { once: true });
+      });
+      continue;
+    }
+
+    try {
+      const streamUrl = `${sseUrl}/v1/stream?account=true&timeout=120&limit=50`;
+      console.log(`[ClawTell SSE] Connecting to ${streamUrl}`);
+      statusSink({ sseStatus: "connecting" });
+
+      const response = await fetch(streamUrl, {
+        headers: { "Authorization": `Bearer ${apiKey}` },
+        signal: abortSignal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`SSE connection failed: HTTP ${response.status}`);
+      }
+
+      if (!response.body) {
+        throw new Error("SSE response has no body");
+      }
+
+      consecutiveFailures = 0;
+      statusSink({ sseStatus: "connected" });
+      console.log(`[ClawTell SSE] Connected successfully`);
+
+      // Parse SSE stream
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let currentEvent = "";
+      let currentData = "";
+
+      while (!abortSignal.aborted) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            currentEvent = line.slice(7).trim();
+          } else if (line.startsWith("data: ")) {
+            currentData = line.slice(6);
+          } else if (line === "" && currentData) {
+            // End of event
+            if (currentEvent === "message") {
+              try {
+                const msg = JSON.parse(currentData) as ClawTellMessage;
+                console.log(`[ClawTell SSE] Received message ${msg.id} from ${msg.from}`);
+                await processAccountMessages(opts, runtime, apiKey, sseUrl, [msg]);
+                statusSink({ lastInboundAt: new Date().toISOString() });
+              } catch (parseErr) {
+                console.error("[ClawTell SSE] Failed to parse message:", parseErr);
+              }
+            } else if (currentEvent === "timeout") {
+              console.log("[ClawTell SSE] Server timeout, reconnecting...");
+            } else if (currentEvent === "connected") {
+              console.log(`[ClawTell SSE] Stream confirmed: ${currentData}`);
+            } else if (currentEvent === "error") {
+              console.error(`[ClawTell SSE] Server error: ${currentData}`);
+            }
+            // Reset for next event
+            currentEvent = "";
+            currentData = "";
+          }
+          // Keepalive comments (": keepalive") are silently ignored
+        }
+      }
+
+      reader.releaseLock();
+    } catch (error) {
+      if (abortSignal.aborted) break;
+      consecutiveFailures++;
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[ClawTell SSE] Connection error (failure ${consecutiveFailures}/${MAX_SSE_FAILURES}):`, errorMsg);
+      statusSink({ sseStatus: "disconnected", lastError: errorMsg });
+    }
+
+    // Brief delay before reconnecting
+    if (!abortSignal.aborted) {
+      const delay = Math.min(2000 * consecutiveFailures, 10000);
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(resolve, delay);
+        abortSignal.addEventListener("abort", () => { clearTimeout(timeout); resolve(); }, { once: true });
+      });
+    }
+  }
 }
 
 /**
@@ -605,6 +911,7 @@ async function processAccountMessages(
 
     const route = resolveRoute(toName, account);
     const agentName = route.agent || "main";
+
     console.log(`[ClawTell] Message ${msg.id}: ${senderName} → ${toName} → agent:${agentName} (forward:${route.forward}) ATTS=${msg.attachments?.length ?? 0}`);
 
     const { resolved: resolvedAttachments, textSuffix: attachmentSuffix } = await processAttachments(apiKey, msg.attachments);
@@ -624,23 +931,17 @@ async function processAccountMessages(
     }
 
     const replyKey = resolveReplyKey(route, apiKey);
-    const ok = await dispatchToAgent(
-      runtime,
-      opts,
-      apiKey,
-      replyKey,
-      {
-        msgId: msg.id,
-        senderName,
-        toName,
-        agentName,
-        messageContent: agentMessageContent,
-        rawBody: msg.body,
-        subject: msg.subject,
-        createdAt: msg.createdAt,
-        replyToMessageId: msg.replyToMessageId,
-      }
-    );
+    const ok = await dispatchToAgent(runtime, opts, apiKey, replyKey, {
+      msgId: msg.id,
+      senderName,
+      toName,
+      agentName,
+      messageContent: agentMessageContent,
+      rawBody: msg.body,
+      subject: msg.subject,
+      createdAt: msg.createdAt,
+      replyToMessageId: msg.replyToMessageId,
+    });
 
     if (ok) {
       ackedIds.push(msg.id);
@@ -684,272 +985,10 @@ async function processAccountMessages(
       console.error("[ClawTell] ACK failed, trying fallback:", err);
       try {
         if (sseUrl) {
-          await batchAck(apiKey, ackedIds);
+          await batchAck(apiKey, ackedIds); // Fall back to Vercel
         }
       } catch { /* best effort */ }
     }
-  }
-}
-
-/**
- * SSE-based account polling loop.
- * Connects to the SSE server for real-time message delivery.
- * Falls back to HTTP polling if SSE connection fails.
- */
-async function sseAccountLoop(
-  opts: PollOptions,
-  runtime: ClawTellRuntime,
-  apiKey: string,
-  pollIntervalMs: number
-): Promise<void> {
-  const { account, abortSignal, statusSink } = opts;
-  const sseUrl = account.sseUrl!;
-  
-  let consecutiveFailures = 0;
-  const MAX_SSE_FAILURES = 3;
-
-  while (!abortSignal.aborted) {
-    // ── Retry queued messages first ──
-    try {
-      const queued = await getPending();
-      for (const qm of queued) {
-        if (abortSignal.aborted) break;
-        
-        const ok = await dispatchToAgent(
-          runtime,
-          opts,
-          qm.apiKey,
-          qm.replyApiKey || qm.apiKey,
-          {
-            msgId: qm.id,
-            senderName: qm.from,
-            toName: qm.toName,
-            agentName: qm.agent,
-            messageContent: qm.content,
-            rawBody: qm.rawBody,
-            subject: qm.subject,
-            createdAt: qm.createdAt,
-            replyToMessageId: qm.replyToMessageId,
-          }
-        );
-
-        if (ok) {
-          try {
-            await batchAckSse(sseUrl, qm.apiKey, [qm.id]);
-          } catch {
-            try {
-              await batchAck(qm.apiKey, [qm.id]);
-            } catch { /* best effort */ }
-          }
-          await dequeue(qm.id);
-          console.log(`[ClawTell SSE] Delivered queued msg ${qm.id} to agent:${qm.agent}`);
-        } else {
-          const deadLettered = await markAttempt(qm.id, "dispatch failed on retry");
-          if (deadLettered) {
-            try {
-              await forwardToActiveChannel(
-                runtime,
-                `⚠️ **ClawTell Dead Letter**: Message ${qm.id} from tell/${qm.from} → ${qm.toName} failed after ${qm.attempts} attempts.`,
-                opts.config,
-                "main"
-              );
-            } catch { /* best effort */ }
-            try {
-              await batchAckSse(sseUrl, qm.apiKey, [qm.id]);
-            } catch {
-              try {
-                await batchAck(qm.apiKey, [qm.id]);
-              } catch { /* best effort */ }
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.error("[ClawTell SSE Queue] Error processing queued messages:", err);
-    }
-
-    // ── SSE connection ──
-    if (consecutiveFailures >= MAX_SSE_FAILURES) {
-      console.log(`[ClawTell SSE] ${consecutiveFailures} consecutive failures, falling back to HTTP polling for this cycle`);
-      statusSink({ sseStatus: "fallback-polling" });
-      
-      try {
-        const messages = await pollAccountMessages(apiKey, { limit: 50, timeout: 5 });
-        if (messages.length > 0) {
-          await processAccountMessages(opts, runtime, apiKey, sseUrl, messages);
-          statusSink({ lastInboundAt: new Date().toISOString() });
-        }
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        console.error("[ClawTell SSE] Fallback poll error:", errorMsg);
-      }
-      
-      consecutiveFailures = 0;
-      await new Promise<void>((resolve) => {
-        const timeout = setTimeout(resolve, pollIntervalMs);
-        abortSignal.addEventListener("abort", () => { clearTimeout(timeout); resolve(); }, { once: true });
-      });
-      continue;
-    }
-
-    try {
-      const streamUrl = `${sseUrl}/v1/stream?account=true&timeout=120&limit=50`;
-      console.log(`[ClawTell SSE] Connecting to ${streamUrl}`);
-      statusSink({ sseStatus: "connecting" });
-
-      const response = await fetch(streamUrl, {
-        headers: { "Authorization": `Bearer ${apiKey}` },
-        signal: abortSignal,
-      });
-
-      if (!response.ok) {
-        throw new Error(`SSE connection failed: HTTP ${response.status}`);
-      }
-
-      if (!response.body) {
-        throw new Error("SSE response has no body");
-      }
-
-      consecutiveFailures = 0;
-      statusSink({ sseStatus: "connected" });
-      console.log(`[ClawTell SSE] Connected successfully`);
-
-      // Parse SSE stream
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let currentEvent = "";
-      let currentData = "";
-
-      while (!abortSignal.aborted) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (line.startsWith("event: ")) {
-            currentEvent = line.slice(7).trim();
-          } else if (line.startsWith("data: ")) {
-            currentData = line.slice(6);
-          } else if (line === "" && currentData) {
-            if (currentEvent === "message") {
-              try {
-                const msg = JSON.parse(currentData) as ClawTellMessage;
-                console.log(`[ClawTell SSE] Received message ${msg.id} from ${msg.from}`);
-                await processAccountMessages(opts, runtime, apiKey, sseUrl, [msg]);
-                statusSink({ lastInboundAt: new Date().toISOString() });
-              } catch (parseErr) {
-                console.error("[ClawTell SSE] Failed to parse message:", parseErr);
-              }
-            } else if (currentEvent === "timeout") {
-              console.log("[ClawTell SSE] Server timeout, reconnecting...");
-            } else if (currentEvent === "connected") {
-              console.log(`[ClawTell SSE] Stream confirmed: ${currentData}`);
-            } else if (currentEvent === "error") {
-              console.error(`[ClawTell SSE] Server error: ${currentData}`);
-            }
-            currentEvent = "";
-            currentData = "";
-          }
-        }
-      }
-
-      reader.releaseLock();
-    } catch (error) {
-      if (abortSignal.aborted) break;
-      
-      consecutiveFailures++;
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error(`[ClawTell SSE] Connection error (failure ${consecutiveFailures}/${MAX_SSE_FAILURES}):`, errorMsg);
-      statusSink({ sseStatus: "disconnected", lastError: errorMsg });
-    }
-
-    // Brief delay before reconnecting
-    if (!abortSignal.aborted) {
-      const delay = Math.min(2000 * consecutiveFailures, 10000);
-      await new Promise<void>((resolve) => {
-        const timeout = setTimeout(resolve, delay);
-        abortSignal.addEventListener("abort", () => { clearTimeout(timeout); resolve(); }, { once: true });
-      });
-    }
-  }
-}
-
-/**
- * Dispatch a message to an agent session. Returns true on success.
- */
-async function dispatchToAgent(
-  runtime: ClawTellRuntime,
-  opts: PollOptions,
-  apiKey: string,        // account-level key (for polling/ACK)
-  replyApiKey: string,   // per-route key (for sending replies back)
-  params: {
-    msgId: string;
-    senderName: string;
-    toName: string;
-    agentName: string;
-    messageContent: string;
-    rawBody: string;
-    subject?: string;
-    createdAt: string;
-    replyToMessageId?: string;
-  }
-): Promise<boolean> {
-  try {
-    const sessionKey = `agent:${params.agentName}:main`;
-    
-    const inboundCtx = runtime.channel.reply.finalizeInboundContext({
-      Body: params.messageContent,
-      RawBody: params.rawBody,
-      From: `tell/${params.senderName}`,
-      To: `tell/${params.toName}`,
-      SessionKey: sessionKey,
-      AccountId: opts.account.accountId,
-      ChatType: "direct",
-      SenderName: params.senderName,
-      SenderId: `tell/${params.senderName}`,
-      Provider: "clawtell",
-      Surface: "clawtell",
-      MessageSid: params.msgId,
-      Timestamp: new Date(params.createdAt),
-      ReplyToId: params.replyToMessageId,
-      Subject: params.subject,
-    });
-    
-    await runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-      ctx: inboundCtx,
-      cfg: opts.config,
-      dispatcherOptions: {
-        deliver: async (payload: any) => {
-          console.log(`[ClawTell] Sending reply from ${params.toName} to ${params.senderName} (key=${replyApiKey === apiKey ? 'account' : 'route-specific'})`);
-          await fetch(`${CLAWTELL_API_BASE}/messages/send`, {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${replyApiKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              to: params.senderName,
-              body: payload.text || payload.content,
-              subject: payload.subject,
-              from_name: params.toName,
-            }),
-            signal: AbortSignal.timeout(30000),
-          });
-        },
-        onError: (err: Error) => {
-          console.error("[ClawTell] Reply delivery error:", err);
-        },
-      },
-    });
-    
-    return true;
-  } catch (err) {
-    console.error(`[ClawTell] Dispatch failed for msg ${params.msgId}:`, err);
-    return false;
   }
 }
 
@@ -1016,8 +1055,105 @@ async function pollAccountLoop(
     // ── Poll server for new messages ──
     try {
       const messages = await pollAccountMessages(apiKey, { limit: 50, timeout: 5 });
+      const ackedIds: string[] = [];
+      
+      for (const msg of messages) {
+        const senderName = (msg.from || "").replace(/^tell\//, "");
+        const toName = msg.to_name || account.tellName || "";
+        
+        // Check delivery policy
+        const deliveryCheck = checkDeliveryPolicy(senderName, opts.config);
+        if (!deliveryCheck.allowed) {
+          console.log(`[ClawTell] Rejecting message from ${senderName}: ${deliveryCheck.reason}`);
+          ackedIds.push(msg.id);
+          continue;
+        }
+        
+        // Resolve routing
+        const route = resolveRoute(toName, account);
+        const agentName = route.agent || "main";
+        
+        console.log(`[ClawTell] Message ${msg.id}: ${senderName} → ${toName} → agent:${agentName} (forward:${route.forward}) ATTS=${msg.attachments?.length ?? 0}`);
+        
+        // Process attachments
+        const { resolved: resolvedAttachments, textSuffix: attachmentSuffix } = await processAttachments(apiKey, msg.attachments);
+        
+        // Format message
+        const messageContent = msg.subject
+          ? `🦞🦞 *ClawTell Delivery* 🦞🦞\n\nfrom *tell/${senderName}*\nto: *${toName}*\n\n*Subject:* ${msg.subject}\n\n${msg.body}`
+          : `🦞🦞 *ClawTell Delivery* 🦞🦞\n\nfrom *tell/${senderName}*\nto: *${toName}*\n\n${msg.body}`;
+        
+        // Message content for agent includes attachment paths
+        const agentMessageContent = messageContent + attachmentSuffix;
+        
+        // Forward to human's active channel if configured
+        if (route.forward) {
+          try {
+            await forwardToActiveChannel(runtime, messageContent, opts.config, agentName, resolvedAttachments);
+          } catch (err) {
+            console.error("[ClawTell] Forward failed:", err);
+          }
+        }
+        
+        // Dispatch to agent session (use per-route apiKey for replies)
+        const replyKey = resolveReplyKey(route, apiKey);
+        const ok = await dispatchToAgent(runtime, opts, apiKey, replyKey, {
+          msgId: msg.id,
+          senderName,
+          toName,
+          agentName,
+          messageContent: agentMessageContent,
+          rawBody: msg.body,
+          subject: msg.subject,
+          createdAt: msg.createdAt,
+          replyToMessageId: msg.replyToMessageId,
+        });
+        
+        if (ok) {
+          ackedIds.push(msg.id);
+        } else if (agentName !== "main") {
+          // Queue for retry (never queue messages to main — main is always running)
+          await enqueue({
+            id: msg.id,
+            from: senderName,
+            toName,
+            agent: agentName,
+            forward: route.forward,
+            content: messageContent,
+            rawBody: msg.body,
+            subject: msg.subject,
+            createdAt: msg.createdAt,
+            queuedAt: new Date().toISOString(),
+            attempts: 1,
+            lastError: "initial dispatch failed",
+            accountId: account.accountId,
+            apiKey,
+            replyApiKey: replyKey !== apiKey ? replyKey : undefined,
+            replyToMessageId: msg.replyToMessageId,
+          });
+          // ACK on server — we own delivery now via local queue
+          ackedIds.push(msg.id);
+        }
+        // If main agent dispatch fails, don't ACK — server will retry next poll
+        
+        // Clean up temp files (after dispatch, agent has had chance to read them)
+        if (resolvedAttachments.length > 0) {
+          // Delay cleanup slightly so agent session can read files
+          setTimeout(() => cleanupAttachments(resolvedAttachments), 60000);
+        }
+      }
+      
+      // Batch ACK successful messages
+      if (ackedIds.length > 0) {
+        try {
+          await batchAck(apiKey, ackedIds);
+          console.log(`[ClawTell] ACK'd ${ackedIds.length} messages`);
+        } catch (err) {
+          console.error("[ClawTell] Batch ACK failed:", err);
+        }
+      }
+      
       if (messages.length > 0) {
-        await processAccountMessages(opts, runtime, apiKey, null, messages);
         statusSink({ lastInboundAt: new Date().toISOString() });
       }
     } catch (error) {
