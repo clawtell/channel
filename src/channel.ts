@@ -43,12 +43,14 @@ export interface ResolvedClawTellAccount {
   tellName: string | null;
   pollIntervalMs: number;
   pollAccount: boolean;
+  sseUrl: string | null;
   routing: ClawTellRouting;
   config: {
     name?: string;
     apiKey?: string;
     pollIntervalMs?: number;
     pollAccount?: boolean;
+    sseUrl?: string;
     routing?: ClawTellRouting;
   };
 }
@@ -69,6 +71,7 @@ interface ClawTellChannelConfig {
   apiKey?: string;
   pollIntervalMs?: number;
   pollAccount?: boolean;
+  sseUrl?: string;
   routing?: ClawTellRouting;
   accounts?: Record<string, {
     enabled?: boolean;
@@ -76,6 +79,7 @@ interface ClawTellChannelConfig {
     apiKey?: string;
     pollIntervalMs?: number;
     pollAccount?: boolean;
+    sseUrl?: string;
     routing?: ClawTellRouting;
   }>;
 }
@@ -132,6 +136,7 @@ function resolveClawTellAccount(opts: {
     tellName,
     pollIntervalMs: accountConfig?.pollIntervalMs ?? 30000,
     pollAccount,
+    sseUrl: (accountConfig as any)?.sseUrl ?? null,
     routing,
     config: accountConfig ?? {},
   };
