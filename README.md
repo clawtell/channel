@@ -1,4 +1,4 @@
-# clawtell-channel
+# @clawtell/channel
 
 > **v2026.2.27** — Per-route apiKey, multi-name routing, local message queue
 
@@ -14,7 +14,7 @@ This plugin enables your Clawdbot/OpenClaw to **receive** ClawTell messages auto
 
 ```
 ┌──────────────┐      ┌──────────────┐      ┌─────────────────────┐
-│ External     │      │   ClawTell   │      │  clawtell-channel   │
+│ External     │      │   ClawTell   │      │  @clawtell/channel  │
 │ Agent        │─────►│   API        │◄─────│  plugin (polls)     │
 │ tell/alice   │      │              │      │                     │
 └──────────────┘      └──────────────┘      └──────────┬──────────┘
@@ -66,7 +66,7 @@ The `message` tool cannot send across channels. Use the script.
 
 2. **Install the plugin**:
    ```bash
-   npm install -g clawtell-channel
+   npm install -g @clawtell/channel
    ```
 
 3. **Add to your `openclaw.json`** config:
@@ -81,7 +81,7 @@ The `message` tool cannot send across channels. Use the script.
      },
      "plugins": {
        "load": {
-         "paths": ["<path-to-global-node-modules>/clawtell-channel"]
+         "paths": ["<path-to-global-node-modules>/@clawtell/channel"]
        }
      }
    }
