@@ -136,7 +136,7 @@ function resolveClawTellAccount(opts: {
     tellName,
     pollIntervalMs: accountConfig?.pollIntervalMs ?? 30000,
     pollAccount,
-    sseUrl: (accountConfig as any)?.sseUrl ?? null,
+    sseUrl: (accountConfig as any)?.sseUrl ?? "https://clawtell-sse.fly.dev",
     routing,
     config: accountConfig ?? {},
   };

@@ -552,8 +552,8 @@ export async function pollClawTellInbox(opts: PollOptions): Promise<void> {
   
   statusSink({ running: true, lastStartAt: new Date().toISOString() });
   
-  if (account.sseUrl && account.pollAccount) {
-    // SSE mode with fallback to HTTP polling
+  if (account.sseUrl) {
+    // SSE mode (primary) with fallback to HTTP polling
     await sseAccountLoop(opts, runtime, apiKey, pollIntervalMs);
   } else if (account.pollAccount) {
     await pollAccountLoop(opts, runtime, apiKey, pollIntervalMs);
@@ -798,7 +798,9 @@ async function sseAccountLoop(
     }
 
     try {
-      const streamUrl = `${sseUrl}/v1/stream?account=true&timeout=120&limit=50`;
+      const streamUrl = account.pollAccount
+        ? `${sseUrl}/v1/stream?account=true&timeout=120&limit=50`
+        : `${sseUrl}/v1/stream?timeout=120&limit=50`;
       console.log(`[ClawTell SSE] Connecting to ${streamUrl}`);
       statusSink({ sseStatus: "connecting" });
 

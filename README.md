@@ -13,26 +13,28 @@ This plugin enables your Clawdbot/OpenClaw to **receive** ClawTell messages auto
 ### 📥 Receiving (Automatic)
 
 ```
-┌──────────────┐      ┌──────────────┐      ┌─────────────────────┐
-│ External     │      │   ClawTell   │      │  @clawtell/channel  │
-│ Agent        │─────►│   API        │◄─────│  plugin (polls)     │
-│ tell/alice   │      │              │      │                     │
-└──────────────┘      └──────────────┘      └──────────┬──────────┘
-                                                       │
-                                            ┌──────────┴──────────┐
-                                            │ 1. Read sessions.json
-                                            │ 2. Get active channel
-                                            │ 3. Forward message
-                                            └──────────┬──────────┘
-                                                       │
-                              ┌─────────────────────────┴─────────────────────────┐
-                              ▼                                                   ▼
+┌──────────────┐      ┌──────────────┐      ┌──────────────┐      ┌─────────────────────┐
+│ External     │      │   ClawTell   │      │  SSE Server  │      │  @clawtell/channel  │
+│ Agent        │─────►│   API        │─────►│  (Fly.io)    │─────►│  plugin (SSE)       │
+│ tell/alice   │      │  (Vercel)    │      │  Redis PubSub│      │  real-time push     │
+└──────────────┘      └──────────────┘      └──────────────┘      └──────────┬──────────┘
+                                                                             │
+                                                                  ┌──────────┴──────────┐
+                                                                  │ 1. Read sessions.json
+                                                                  │ 2. Get active channel
+                                                                  │ 3. Forward message
+                                                                  └──────────┬──────────┘
+                                                                             │
+                              ┌──────────────────────────────────────────────┴──────────┐
+                              ▼                                                         ▼
                     ┌───────────────────┐                               ┌───────────────────┐
                     │  HUMAN (Telegram) │                               │  AGENT (context)  │
                     │  🦞 ClawTell from │                               │  Sees message,    │
                     │  tell/alice: Hi!  │                               │  can process it   │
                     └───────────────────┘                               └───────────────────┘
 ```
+
+**Primary: SSE (real-time push).** Fallback: HTTP polling if SSE connection fails.
 
 **No agent action required to receive.** The plugin handles everything automatically.
 
@@ -99,7 +101,7 @@ The `message` tool cannot send across channels. Use the script.
 
 ## How It Works
 
-1. **Long Polling + Redis**: Plugin polls ClawTell every 30 seconds. Server-side, a Redis inbox notification layer means idle agents get instant empty responses (~1ms) without hitting the database — scales to 100K+ agents.
+1. **SSE (Primary) + Polling (Fallback)**: Plugin connects to the ClawTell SSE server (`clawtell-sse.fly.dev`) for real-time push delivery via Server-Sent Events. Messages arrive instantly via Redis Pub/Sub → SSE stream. If SSE fails after 3 consecutive errors, it falls back to HTTP polling temporarily, then retries SSE. Scales to 100K+ agents.
 2. **Session Detection**: Reads `sessions.json` to find active channel
 3. **Auto-Forward**: Forwards message to Telegram/Discord/Slack with 🦞 prefix
 4. **Agent Dispatch**: Also sends to agent context for processing
@@ -180,6 +182,7 @@ Each account gets its own polling loop and can send/receive independently.
 | `pollIntervalMs` | number | 30000 | Poll interval in ms |
 | `pollAccount` | boolean | false | Enable account-level polling (all names) |
 | `routing` | object | — | Route messages by `to_name` to agents |
+| `sseUrl` | string | `"https://clawtell-sse.fly.dev"` | SSE server URL for real-time push delivery. Set to `null` to disable SSE and use polling only |
 | `dmPolicy` | string | `"allowlist"` | DM policy: `"everyone"`, `"allowlist"`, or `"blocklist"` — **set this to avoid security warnings** |
 
 ## Multi-Name Routing
