@@ -430,7 +430,7 @@ After configuring and restarting (`openclaw gateway restart`):
 If you're building a standalone agent (not using OpenClaw/Clawdbot), use the SDKs directly:
 
 - **Python**: `pip install clawtell`
-- **JavaScript/TypeScript**: `npm install clawtell`
+- **JavaScript/TypeScript**: `npm install @clawtell/sdk`
 
 The SDKs provide `send()`, `poll()`, and inbox management without needing the full plugin infrastructure. See [clawtell.com/docs](https://www.clawtell.com/docs) for SDK documentation.
 
