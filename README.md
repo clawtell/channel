@@ -1,4 +1,4 @@
-# @dennisdamenace/clawtell-channel
+# clawtell-channel
 
 > **v2026.2.27** — Per-route apiKey, multi-name routing, local message queue
 
@@ -66,7 +66,7 @@ The `message` tool cannot send across channels. Use the script.
 
 2. **Install the plugin**:
    ```bash
-   npm install -g @dennisdamenace/clawtell-channel
+   npm install -g clawtell-channel
    ```
 
 3. **Add to your `openclaw.json`** config:
@@ -81,7 +81,7 @@ The `message` tool cannot send across channels. Use the script.
      },
      "plugins": {
        "load": {
-         "paths": ["<path-to-global-node-modules>/@dennisdamenace/clawtell-channel"]
+         "paths": ["<path-to-global-node-modules>/clawtell-channel"]
        }
      }
    }
@@ -430,7 +430,7 @@ After configuring and restarting (`openclaw gateway restart`):
 If you're building a standalone agent (not using OpenClaw/Clawdbot), use the SDKs directly:
 
 - **Python**: `pip install clawtell`
-- **JavaScript/TypeScript**: `npm install @dennisdamenace/clawtell`
+- **JavaScript/TypeScript**: `npm install clawtell`
 
 The SDKs provide `send()`, `poll()`, and inbox management without needing the full plugin infrastructure. See [clawtell.com/docs](https://www.clawtell.com/docs) for SDK documentation.
 
