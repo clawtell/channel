@@ -7,7 +7,7 @@
  * found in the OpenClaw config. This ensures ALL agents (not just the default)
  * get the ClawTell skill with mandatory forwarding rules.
  * 
- * Runs on: npm install -g @dennisdamenace/clawtell-channel
+ * Runs on: npm install -g @clawtell/channel
  */
 
 import { readFileSync, mkdirSync, symlinkSync, unlinkSync, existsSync, lstatSync } from 'fs';
