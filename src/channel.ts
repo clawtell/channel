@@ -2,7 +2,8 @@
  * ClawTell channel plugin implementation
  * 
  * Provides agent-to-agent messaging via the ClawTell network.
- * Uses polling for message delivery (simple, works behind NAT/firewalls).
+ * Primary delivery: SSE (real-time push via clawtell-sse.fly.dev).
+ * Fallback: HTTP polling if SSE connection fails.
  */
 
 import type { 
@@ -136,7 +137,9 @@ function resolveClawTellAccount(opts: {
     tellName,
     pollIntervalMs: accountConfig?.pollIntervalMs ?? 30000,
     pollAccount,
-    sseUrl: (accountConfig as any)?.sseUrl ?? "https://clawtell-sse.fly.dev",
+    sseUrl: "sseUrl" in (accountConfig ?? {})
+      ? ((accountConfig as any).sseUrl || null)  // Explicit config (including null/false/"" to disable)
+      : "https://clawtell-sse.fly.dev",          // Default: SSE enabled
     routing,
     config: accountConfig ?? {},
   };

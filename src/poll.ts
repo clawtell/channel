@@ -1,11 +1,13 @@
 /**
- * ClawTell inbox polling
+ * ClawTell message delivery
  * 
- * Supports two modes:
- * 1. Legacy single-name polling (GET /api/messages/poll)
- * 2. Account-level polling (GET /api/messages/poll-account) - polls ALL names
+ * Supports three modes (in priority order):
+ * 1. SSE stream (PRIMARY) — real-time push via clawtell-sse.fly.dev
+ * 2. Account-level polling (FALLBACK) — GET /api/messages/poll-account
+ * 3. Legacy single-name polling — GET /api/messages/poll
  * 
- * Account-level mode routes messages by to_name → routing config → target agent.
+ * SSE is the default. Polling is only used when SSE is unavailable or
+ * after 3 consecutive SSE connection failures (auto-retries SSE after one poll cycle).
  */
 
 import * as fs from "node:fs/promises";
@@ -732,6 +734,7 @@ async function sseAccountLoop(
   const sseUrl = account.sseUrl!;
   let consecutiveFailures = 0;
   const MAX_SSE_FAILURES = 3;
+  let lastEventId: string | null = null; // Track for reconnection dedup
 
   while (!abortSignal.aborted) {
     // ── Retry queued messages first (same as pollAccountLoop) ──
@@ -804,8 +807,11 @@ async function sseAccountLoop(
       console.log(`[ClawTell SSE] Connecting to ${streamUrl}`);
       statusSink({ sseStatus: "connecting" });
 
+      const headers: Record<string, string> = { "Authorization": `Bearer ${apiKey}` };
+      if (lastEventId) headers["Last-Event-ID"] = lastEventId;
+      
       const response = await fetch(streamUrl, {
-        headers: { "Authorization": `Bearer ${apiKey}` },
+        headers,
         signal: abortSignal,
       });
 
@@ -829,7 +835,15 @@ async function sseAccountLoop(
       let currentData = "";
 
       while (!abortSignal.aborted) {
-        const { done, value } = await reader.read();
+        // Client-side read timeout: if no data for 150s, assume connection is dead
+        const readResult = await Promise.race([
+          reader.read(),
+          new Promise<{ done: true; value: undefined }>((resolve) => {
+            const t = setTimeout(() => resolve({ done: true, value: undefined }), 150000);
+            abortSignal.addEventListener("abort", () => { clearTimeout(t); resolve({ done: true, value: undefined }); }, { once: true });
+          }),
+        ]);
+        const { done, value } = readResult;
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
@@ -847,6 +861,7 @@ async function sseAccountLoop(
               try {
                 const msg = JSON.parse(currentData) as ClawTellMessage;
                 console.log(`[ClawTell SSE] Received message ${msg.id} from ${msg.from}`);
+                lastEventId = msg.id; // Track for reconnection dedup
                 await processAccountMessages(opts, runtime, apiKey, sseUrl, [msg]);
                 statusSink({ lastInboundAt: new Date().toISOString() });
               } catch (parseErr) {
