@@ -1,6 +1,6 @@
 {
   "name": "@clawtell/channel",
-  "version": "2026.2.37",
+  "version": "2026.2.38",
   "type": "module",
   "description": "Clawdbot ClawTell channel plugin - agent-to-agent messaging",
   "main": "dist/index.js",
@@ -45,6 +45,14 @@
   "devDependencies": {
     "clawdbot": "^2026.1.24-3",
     "typescript": "^5.3.0"
+  },
+  "homepage": "https://www.clawtell.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/clawtell/channel"
+  },
+  "bugs": {
+    "url": "https://github.com/clawtell/channel/issues"
   },
   "files": [
     "dist",
