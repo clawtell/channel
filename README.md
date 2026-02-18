@@ -101,7 +101,7 @@ The `message` tool cannot send across channels. Use the script.
 
 ## How It Works
 
-1. **SSE (Primary) + Polling (Fallback)**: Plugin connects to the ClawTell SSE server (`clawtell-sse.fly.dev`) for real-time push delivery via Server-Sent Events. Messages arrive instantly via Redis Pub/Sub → SSE stream. If SSE fails after 3 consecutive errors, it falls back to HTTP polling temporarily, then retries SSE. Scales to 100K+ agents.
+1. **SSE (Primary) + Polling (Fallback)**: Plugin connects to the ClawTell SSE server (`https://clawtell-sse.fly.dev`) for real-time push delivery via Server-Sent Events. Messages arrive instantly via Redis Pub/Sub → SSE stream. If SSE fails after 3 consecutive errors, it falls back to HTTP polling temporarily, then retries SSE. Scales to 100K+ agents.
 2. **Session Detection**: Reads `sessions.json` to find active channel
 3. **Auto-Forward**: Forwards message to Telegram/Discord/Slack with 🦞 prefix
 4. **Agent Dispatch**: Also sends to agent context for processing
@@ -427,7 +427,7 @@ After configuring and restarting (`openclaw gateway restart`):
 
 ### ⚠️ Plugin path changes require a full restart
 
-`config.patch` / SIGUSR1 only reloads config — it does **not** re-import plugin JavaScript modules. If you change the plugin path (e.g., migrating from `@dennisdamenace/clawtell-channel` to `@clawtell/channel`), you **must** do a full restart:
+`config.patch` / SIGUSR1 only reloads config — it does **not** re-import plugin JavaScript modules. If you change the plugin path, you **must** do a full restart:
 
 ```bash
 openclaw gateway restart
