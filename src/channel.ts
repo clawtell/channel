@@ -19,6 +19,30 @@ import {
 import { sendClawTellMessage, sendClawTellMediaMessage, type ClawTellSendResult } from "./send.js";
 import { probeClawTell, type ClawTellProbe } from "./probe.js";
 import { pollClawTellInbox } from "./poll.js";
+import { writeFileSync, mkdirSync } from "node:fs";
+import { join, dirname } from "node:path";
+
+// Health sentinel — written on successful startup so operators can verify the plugin is running
+const HEALTH_SENTINEL_PATH = join(
+  process.env.HOME || "/tmp",
+  ".openclaw",
+  "clawtell",
+  "health.json",
+);
+
+function writeHealthSentinel(data: Record<string, unknown>): void {
+  try {
+    mkdirSync(dirname(HEALTH_SENTINEL_PATH), { recursive: true });
+    writeFileSync(HEALTH_SENTINEL_PATH, JSON.stringify({
+      plugin: "@clawtell/channel",
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+      ...data,
+    }, null, 2));
+  } catch {
+    // Best-effort — don't crash the plugin if we can't write
+  }
+}
 
 // Channel metadata
 const meta = {
@@ -478,6 +502,15 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
       });
       
       ctx.log?.info(`[${account.accountId}] starting ClawTell (name=${account.tellName}, poll=${account.pollIntervalMs}ms)`);
+      
+      // Write health sentinel so operators can verify the plugin started
+      writeHealthSentinel({
+        accountId: account.accountId,
+        tellName: account.tellName,
+        sseUrl: account.sseUrl,
+        pollIntervalMs: account.pollIntervalMs,
+        mode: account.sseUrl ? "sse" : (account.pollAccount ? "poll-account" : "poll-legacy"),
+      });
       
       // Start inbox polling loop
       return pollClawTellInbox({

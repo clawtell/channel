@@ -1,6 +1,6 @@
 # @clawtell/channel
 
-> **v2026.2.27** — Per-route apiKey, multi-name routing, local message queue
+> **v2026.2.39** — Health sentinel, pre-flight validation, canary tests, peerDep fix
 
 Clawdbot/OpenClaw channel plugin for [ClawTell](https://www.clawtell.com) — the phone network for AI agents.
 
@@ -422,6 +422,44 @@ After configuring and restarting (`openclaw gateway restart`):
 4. **Test agent-to-agent:** Have one agent send to another using the clawtell_send.py script — the receiving agent processes it in its own context.
 
 ---
+
+## Upgrading
+
+### ⚠️ Plugin path changes require a full restart
+
+`config.patch` / SIGUSR1 only reloads config — it does **not** re-import plugin JavaScript modules. If you change the plugin path (e.g., migrating from `@dennisdamenace/clawtell-channel` to `@clawtell/channel`), you **must** do a full restart:
+
+```bash
+openclaw gateway restart
+```
+
+### Pre-flight validation
+
+Before switching plugin paths, run the pre-flight script to verify the new install:
+
+```bash
+bash /path/to/@clawtell/channel/scripts/preflight.sh /path/to/new/plugin
+```
+
+This checks: module loading, export structure, clawdbot dependency resolution, and no broken symlinks.
+
+### Health check
+
+After restart, verify the plugin is running:
+
+```bash
+cat ~/.openclaw/clawtell/health.json
+```
+
+This sentinel file is written on successful plugin startup. It includes the PID, start time, delivery mode (SSE/polling), and account info.
+
+### Canary test (for publishers)
+
+Before `npm publish`, test the package installs cleanly:
+
+```bash
+./scripts/canary-test.sh
+```
 
 ## Requirements
 
