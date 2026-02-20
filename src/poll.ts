@@ -257,14 +257,16 @@ function isAutoReplyAllowed(sender: string, config: ClawdbotConfig): boolean {
  */
 async function getDeliveryContext(agentName: string = "main", config?: ClawdbotConfig): Promise<DeliveryContext | null> {
   try {
-    const sessionsPath = path.join(
-      process.env.HOME || "/home/claw",
-      ".clawdbot",
-      "agents",
-      agentName,
-      "sessions",
-      "sessions.json"
-    );
+    const home = process.env.HOME || "/home/claw";
+    // Try .openclaw first (current), fall back to .clawdbot (legacy)
+    const openclawPath = path.join(home, ".openclaw", "agents", agentName, "sessions", "sessions.json");
+    const legacyPath = path.join(home, ".clawdbot", "agents", agentName, "sessions", "sessions.json");
+    let sessionsPath = openclawPath;
+    try {
+      await fs.access(openclawPath);
+    } catch {
+      sessionsPath = legacyPath;
+    }
     
     const data = JSON.parse(await fs.readFile(sessionsPath, "utf8"));
     const mainSession = data[`agent:${agentName}:main`];
