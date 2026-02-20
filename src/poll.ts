@@ -13,7 +13,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ClawdbotConfig } from "clawdbot/plugin-sdk";
+import type { ClawdbotConfig } from "openclaw/plugin-sdk";
 import type { ResolvedClawTellAccount, ClawTellRouteEntry } from "./channel.js";
 import { getClawTellRuntime, type ClawTellRuntime } from "./runtime.js";
 import { enqueue, dequeue, markAttempt, getPending, type QueuedMessage } from "./queue.js";

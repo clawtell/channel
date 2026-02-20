@@ -16,7 +16,7 @@
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { ClawdbotConfig } from "clawdbot/plugin-sdk";
+import type { ClawdbotConfig } from "openclaw/plugin-sdk";
 
 interface ClawTellRouteEntry {
   agent: string;

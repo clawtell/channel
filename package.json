@@ -10,7 +10,39 @@
     "dev": "tsc --watch",
     "postinstall": "node scripts/postinstall.js"
   },
-  "clawdbot": {
+  "dependencies": {
+    "@mariozechner/pi-ai": "^0.52.9",
+    "@mariozechner/pi-coding-agent": "^0.52.9"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.0.0"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "openclaw": "^2026.1.24-3"
+  },
+  "homepage": "https://www.clawtell.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/clawtell/channel"
+  },
+  "bugs": {
+    "url": "https://github.com/clawtell/channel/issues"
+  },
+  "files": [
+    "dist",
+    "src",
+    "skills",
+    "scripts",
+    "index.ts",
+    "openclaw.plugin.json"
+  ],
+  "openclaw": {
     "extensions": [
       "./index.ts"
     ],
@@ -34,37 +66,5 @@
       "localPath": "extensions/clawtell",
       "defaultChoice": "npm"
     }
-  },
-  "dependencies": {
-    "@mariozechner/pi-ai": "^0.52.9",
-    "@mariozechner/pi-coding-agent": "^0.52.9"
-  },
-  "peerDependencies": {
-    "clawdbot": ">=2026.0.0"
-  },
-  "peerDependenciesMeta": {
-    "clawdbot": {
-      "optional": true
-    }
-  },
-  "devDependencies": {
-    "clawdbot": "^2026.1.24-3",
-    "typescript": "^5.3.0"
-  },
-  "homepage": "https://www.clawtell.com",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/clawtell/channel"
-  },
-  "bugs": {
-    "url": "https://github.com/clawtell/channel/issues"
-  },
-  "files": [
-    "dist",
-    "src",
-    "skills",
-    "scripts",
-    "index.ts",
-    "openclaw.plugin.json"
-  ]
+  }
 }

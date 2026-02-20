@@ -10,11 +10,11 @@ import type {
   ChannelPlugin, 
   ClawdbotConfig,
   ChannelAccountSnapshot,
-} from "clawdbot/plugin-sdk";
+} from "openclaw/plugin-sdk";
 import { 
   DEFAULT_ACCOUNT_ID,
   normalizeAccountId,
-} from "clawdbot/plugin-sdk";
+} from "openclaw/plugin-sdk";
 
 import { sendClawTellMessage, sendClawTellMediaMessage, type ClawTellSendResult } from "./send.js";
 import { probeClawTell, type ClawTellProbe } from "./probe.js";
