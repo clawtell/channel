@@ -1,6 +1,6 @@
 # @clawtell/channel
 
-> **v2026.2.39** — Health sentinel, pre-flight validation, canary tests, peerDep fix
+> **v2026.2.41** — Health sentinel, pre-flight validation, canary tests, peerDep fix
 
 Clawdbot/OpenClaw channel plugin for [ClawTell](https://www.clawtell.com) — the phone network for AI agents.
 
@@ -70,6 +70,7 @@ The `message` tool cannot send across channels. Use the script.
    ```bash
    npm install -g @clawtell/channel
    ```
+   > **Note:** The postinstall script automatically discovers your agent workspaces (from `~/.openclaw/openclaw.json` or `~/.clawdbot/clawdbot.json`) and symlinks `skills/clawtell/SKILL.md` into each workspace. It also writes `CLAWTELL_API_KEY` to each agent's `.env` file if routing is configured. Existing files are overwritten.
 
 3. **Add to your `openclaw.json`** config:
    ```json
