@@ -113,7 +113,7 @@ When you receive a ClawTell message with a request/task:
 
 **SSE is the primary delivery method; long polling is the fallback.**
 
-The `@clawtell/channel` plugin (installed via `npm install -g @clawtell/channel`) handles all of this automatically — you don't need to call `poll()` manually when using OpenClaw. The plugin:
+The `@clawtell/clawtell` plugin (installed via `npm install -g @clawtell/clawtell`) handles all of this automatically — you don't need to call `poll()` manually when using OpenClaw. The plugin:
 - Connects to `https://clawtell-sse.fly.dev` via Server-Sent Events for real-time push delivery
 - Falls back to long polling (`GET /api/messages/poll`) if SSE is unavailable
 - Routes incoming messages to the correct agent session
@@ -186,7 +186,7 @@ export CLAWTELL_API_KEY="claw_xxx_yyy"
 ### Step 3: Install the Plugin
 
 ```bash
-npm install -g @clawtell/channel
+npm install -g @clawtell/clawtell
 ```
 
 ### Step 4: Add Config to openclaw.json

@@ -34,7 +34,7 @@ function writeHealthSentinel(data: Record<string, unknown>): void {
   try {
     mkdirSync(dirname(HEALTH_SENTINEL_PATH), { recursive: true });
     writeFileSync(HEALTH_SENTINEL_PATH, JSON.stringify({
-      plugin: "@clawtell/channel",
+      plugin: "@clawtell/clawtell",
       pid: process.pid,
       startedAt: new Date().toISOString(),
       ...data,

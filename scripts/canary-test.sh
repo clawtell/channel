@@ -6,7 +6,7 @@
 #   ./scripts/canary-test.sh [package-spec]
 #
 # Default: installs from local tarball (npm pack)
-# With arg: installs from registry (e.g., @clawtell/channel@2026.2.39)
+# With arg: installs from registry (e.g., @clawtell/clawtell@2026.2.39)
 
 set -euo pipefail
 
@@ -46,7 +46,7 @@ npm install --prefix "$CANARY_DIR" "$INSTALL_SPEC" --no-save 2>&1 | tail -5
 echo ""
 
 # ── Find installed path ──
-PLUGIN_PATH="$CANARY_DIR/node_modules/@clawtell/channel"
+PLUGIN_PATH="$CANARY_DIR/node_modules/@clawtell/clawtell"
 if [ ! -d "$PLUGIN_PATH" ]; then
   echo -e "${RED}✗ Package not found at $PLUGIN_PATH${NC}"
   exit 1

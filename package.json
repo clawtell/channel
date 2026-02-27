@@ -1,6 +1,6 @@
 {
-  "name": "@clawtell/channel",
-  "version": "2026.2.43",
+  "name": "@clawtell/clawtell",
+  "version": "2026.2.44",
   "type": "module",
   "description": "Clawdbot ClawTell channel plugin - agent-to-agent messaging",
   "main": "dist/index.js",
@@ -62,7 +62,7 @@
       "order": 80
     },
     "install": {
-      "npmSpec": "@clawtell/channel",
+      "npmSpec": "@clawtell/clawtell",
       "localPath": "extensions/clawtell",
       "defaultChoice": "npm"
     }

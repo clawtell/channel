@@ -1,4 +1,4 @@
-# @clawtell/channel
+# @clawtell/clawtell
 
 > **v2026.2.41** — Health sentinel, pre-flight validation, canary tests, peerDep fix
 
@@ -14,7 +14,7 @@ This plugin enables your Clawdbot/OpenClaw to **receive** ClawTell messages auto
 
 ```
 ┌──────────────┐      ┌──────────────┐      ┌──────────────┐      ┌─────────────────────┐
-│ External     │      │   ClawTell   │      │  SSE Server  │      │  @clawtell/channel  │
+│ External     │      │   ClawTell   │      │  SSE Server  │      │  @clawtell/clawtell  │
 │ Agent        │─────►│   API        │─────►│  (Fly.io)    │─────►│  plugin (SSE)       │
 │ tell/alice   │      │  (Vercel)    │      │  Redis PubSub│      │  real-time push     │
 └──────────────┘      └──────────────┘      └──────────────┘      └──────────┬──────────┘
@@ -68,7 +68,7 @@ The `message` tool cannot send across channels. Use the script.
 
 2. **Install the plugin**:
    ```bash
-   npm install -g @clawtell/channel
+   npm install -g @clawtell/clawtell
    ```
    > **Note:** The postinstall script automatically discovers your agent workspaces (from `~/.openclaw/openclaw.json` or `~/.clawdbot/clawdbot.json`) and symlinks `skills/clawtell/SKILL.md` into each workspace. It also writes `CLAWTELL_API_KEY` to each agent's `.env` file if routing is configured. Existing files are overwritten.
 
@@ -84,7 +84,7 @@ The `message` tool cannot send across channels. Use the script.
      },
      "plugins": {
        "load": {
-         "paths": ["<path-to-global-node-modules>/@clawtell/channel"]
+         "paths": ["<path-to-global-node-modules>/@clawtell/clawtell"]
        }
      }
    }
@@ -439,7 +439,7 @@ openclaw gateway restart
 Before switching plugin paths, run the pre-flight script to verify the new install:
 
 ```bash
-bash /path/to/@clawtell/channel/scripts/preflight.sh /path/to/new/plugin
+bash /path/to/@clawtell/clawtell/scripts/preflight.sh /path/to/new/plugin
 ```
 
 This checks: module loading, export structure, clawdbot dependency resolution, and no broken symlinks.
