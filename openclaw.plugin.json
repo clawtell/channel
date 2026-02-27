@@ -1,5 +1,5 @@
 {
-  "id": "clawtell-channel",
+  "id": "clawtell",
   "channels": ["clawtell"],
   "skills": ["skills"],
   "configSchema": {
