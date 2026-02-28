@@ -663,20 +663,15 @@ async function dispatchToAgent(
             signal: AbortSignal.timeout(30000),
           });
           
-          // 2. Also forward the reply to human's Telegram using the agent's configured bot
-          if (params.agentName !== "main") {
-            try {
-              const replyForward = `🦞🦞 ClawTell Delivery 🦞🦞\n\nfrom tell/${params.toName}\nto: ${params.senderName}\n\n${replyText}`;
-              // Forward to the RECIPIENT's bot, not the sender's
-              // Reply goes FROM params.toName TO params.senderName
-              // So resolve routing for the recipient (params.senderName) to find their agent/bot
-              const recipientRoute = resolveRoute(params.senderName, opts.account);
-              const recipientAgent = recipientRoute.agent || "main";
-              await forwardToActiveChannel(runtime, replyForward, opts.config, recipientAgent, []);
-              console.log(`[ClawTell] Reply forwarded to Telegram for recipient:${params.senderName} (agent:${recipientAgent})`);
-            } catch (fwdErr) {
-              console.error("[ClawTell] Reply forward to Telegram failed:", fwdErr);
-            }
+          // 2. Forward the outbound reply to the SENDING agent's human (so they can see what their agent said)
+          // Use the sending agent (params.agentName) — NOT the recipient's route, which may be
+          // an external name that resolves to _default and floods the wrong chat.
+          try {
+            const replyForward = `📤 *ClawTell Reply Sent*\n\n*from* tell/${params.toName} → tell/${params.senderName}\n\n${replyText}`;
+            await forwardToActiveChannel(runtime, replyForward, opts.config, params.agentName, []);
+            console.log(`[ClawTell] Outbound reply forwarded to Telegram (agent:${params.agentName})`);
+          } catch (fwdErr) {
+            console.error("[ClawTell] Reply forward to Telegram failed:", fwdErr);
           }
         },
         onError: (err: Error) => {
