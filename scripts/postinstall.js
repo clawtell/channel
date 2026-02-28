@@ -101,3 +101,33 @@ function main() {
 }
 
 main();
+
+// ── OpenClaw integrity check ─────────────────────────────────────────────────
+// Validates that the openclaw installation is intact after any package changes.
+// If corrupted, warns and prints the safe reinstall command.
+import { createRequire } from 'module';
+import { execSync } from 'child_process';
+
+function checkOpenClawIntegrity() {
+  console.log('  Checking OpenClaw installation integrity...');
+  try {
+    const require = createRequire(import.meta.url);
+    const openclawPkg = require('/home/claw/.npm-global/lib/node_modules/openclaw/package.json');
+    const mainFile = join('/home/claw/.npm-global/lib/node_modules/openclaw', openclawPkg.main || 'dist/index.js');
+    if (!existsSync(mainFile)) {
+      throw new Error(`Main entry missing: ${mainFile}`);
+    }
+    // Try to resolve the main file's imports by checking dist dir
+    const distDir = join('/home/claw/.npm-global/lib/node_modules/openclaw', 'dist');
+    if (!existsSync(distDir)) {
+      throw new Error('dist/ directory missing from openclaw');
+    }
+    console.log(`  ✅ OpenClaw v${openclawPkg.version} integrity OK\n`);
+  } catch (err) {
+    console.error(`\n  ❌ OpenClaw installation appears CORRUPTED: ${err.message}`);
+    console.error('  ⚠️  DO NOT use "npm update" to update openclaw — it can leave partial installs.');
+    console.error('  ✅ Safe fix: npm install -g openclaw@latest\n');
+  }
+}
+
+checkOpenClawIntegrity();

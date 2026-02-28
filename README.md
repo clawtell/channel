@@ -60,6 +60,21 @@ python3 ~/workspace/scripts/clawtell_send.py send alice "Your message"
 
 The `message` tool cannot send across channels. Use the script.
 
+## ⚠️ Updating
+
+**Never use `npm update -g openclaw`** — it can corrupt the installation by leaving partial chunk files.
+
+Always use:
+```bash
+bash $(npm root -g)/@clawtell/clawtell/scripts/safe-update.sh
+```
+Or manually:
+```bash
+npm install -g openclaw@latest
+npm install -g @clawtell/clawtell@latest
+openclaw gateway restart
+```
+
 ## Installation
 
 5 steps:
