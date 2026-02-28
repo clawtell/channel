@@ -663,13 +663,14 @@ async function dispatchToAgent(
             signal: AbortSignal.timeout(30000),
           });
           
-          // 2. Forward the outbound reply to the SENDING agent's human (so they can see what their agent said)
-          // Use the sending agent (params.agentName) — NOT the recipient's route, which may be
-          // an external name that resolves to _default and floods the wrong chat.
+          // 2. Forward the outbound reply to the MAIN agent's human so they always see
+          // what their agents say, regardless of which sub-agent handled the message.
+          // The 📤 format makes it clear this is outbound (not an incoming delivery).
+          // _default: forward:false prevents unknown external names from flooding the chat.
           try {
             const replyForward = `📤 *ClawTell Reply Sent*\n\n*from* tell/${params.toName} → tell/${params.senderName}\n\n${replyText}`;
-            await forwardToActiveChannel(runtime, replyForward, opts.config, params.agentName, []);
-            console.log(`[ClawTell] Outbound reply forwarded to Telegram (agent:${params.agentName})`);
+            await forwardToActiveChannel(runtime, replyForward, opts.config, "main", []);
+            console.log(`[ClawTell] Outbound reply forwarded to Telegram (agent:main)`);
           } catch (fwdErr) {
             console.error("[ClawTell] Reply forward to Telegram failed:", fwdErr);
           }
