@@ -245,9 +245,23 @@ function checkDeliveryPolicy(sender: string, config: ClawdbotConfig): { allowed:
  */
 function isAutoReplyAllowed(sender: string, config: ClawdbotConfig): boolean {
   const ctConfig = (config.channels as any)?.clawtell ?? {};
+  const explicitMode: string | undefined = ctConfig.autoReplyMode;
   const allowlist: string[] = ctConfig.autoReplyAllowlist ?? [];
-  const normalizedSender = sender.toLowerCase().replace(/^tell\//, "");
-  return allowlist.map((s: string) => s.toLowerCase()).includes(normalizedSender);
+
+  // Infer mode: if allowlist is configured, default to allowlist_only.
+  // If nothing is configured, default to everyone (backwards compatible).
+  const effectiveMode = explicitMode ?? (allowlist.length > 0 ? "allowlist_only" : "everyone");
+
+  if (effectiveMode === "manual_only") return false;
+  if (effectiveMode === "everyone") return true;
+
+  // allowlist_only
+  if (allowlist.length === 0) return false; // explicit empty = block all
+  const normalized = sender.toLowerCase().replace(/^tell\//, "");
+  return allowlist
+    .filter(Boolean)
+    .map((s: string) => s.toLowerCase().replace(/^tell\//, ""))
+    .includes(normalized);
 }
 
 /**
@@ -586,6 +600,7 @@ async function dispatchToAgent(
     subject?: string;
     createdAt: string;
     replyToMessageId?: string;
+    autoReplyAllowed?: boolean; // default: true (undefined = allow, for backwards compat with queued entries)
   }
 ): Promise<boolean> {
   try {
@@ -623,6 +638,12 @@ async function dispatchToAgent(
       cfg: opts.config,
       dispatcherOptions: {
         deliver: async (payload: any) => {
+          // Gate: suppress reply if auto-reply is not allowed for this sender.
+          // Use !== false so that undefined (old queue entries) defaults to allowed.
+          if (params.autoReplyAllowed === false) {
+            console.log(`[ClawTell] Auto-reply suppressed for ${params.senderName} (not on allowlist)`);
+            return;
+          }
           const replyText = payload.text || payload.content;
           console.log(`[ClawTell] Sending reply from ${params.toName} to ${params.senderName} (key=${replyApiKey === apiKey ? 'account' : 'route-specific'})`);
           
@@ -744,16 +765,27 @@ async function sseAccountLoop(
       const queued = await getPending();
       for (const qm of queued) {
         if (abortSignal.aborted) break;
+        // Fresh policy check at retry time (policy may have changed since message was queued)
+        const canAutoReply = isAutoReplyAllowed(qm.from, opts.config);
+
+        // Embed warning in content if blocked (agent needs to see it at retry time too)
+        const retryContent = canAutoReply
+          ? qm.content
+          : `⚠️ AUTO-REPLY BLOCKED: "${qm.from}" is not on your auto-reply allowlist. ` +
+            `Acknowledge this message to your human but do NOT send a ClawTell reply unless explicitly told to.\n\n` +
+            qm.content;
+
         const ok = await dispatchToAgent(runtime, opts, qm.apiKey, qm.replyApiKey || qm.apiKey, {
           msgId: qm.id,
           senderName: qm.from,
           toName: qm.toName,
           agentName: qm.agent,
-          messageContent: qm.content,
+          messageContent: retryContent,
           rawBody: qm.rawBody,
           subject: qm.subject,
           createdAt: qm.createdAt,
           replyToMessageId: qm.replyToMessageId,
+          autoReplyAllowed: canAutoReply,
         });
         if (ok) {
           try { await batchAckSse(sseUrl, qm.apiKey, [qm.id]); } catch {
@@ -950,16 +982,28 @@ async function processAccountMessages(
     }
 
     const replyKey = resolveReplyKey(route, apiKey);
+
+    // Auto-reply policy check
+    const canAutoReply = isAutoReplyAllowed(senderName, opts.config);
+    console.log(`[ClawTell] Auto-reply for ${senderName}: ${canAutoReply ? 'ALLOWED' : 'WAIT FOR HUMAN'}`);
+
+    const finalMessageContent = canAutoReply
+      ? agentMessageContent
+      : `⚠️ AUTO-REPLY BLOCKED: "${senderName}" is not on your auto-reply allowlist. ` +
+        `Acknowledge this message to your human but do NOT send a ClawTell reply unless explicitly told to.\n\n` +
+        agentMessageContent;
+
     const ok = await dispatchToAgent(runtime, opts, apiKey, replyKey, {
       msgId: msg.id,
       senderName,
       toName,
       agentName,
-      messageContent: agentMessageContent,
+      messageContent: finalMessageContent,
       rawBody: msg.body,
       subject: msg.subject,
       createdAt: msg.createdAt,
       replyToMessageId: msg.replyToMessageId,
+      autoReplyAllowed: canAutoReply,
     });
 
     if (ok) {
@@ -1028,17 +1072,28 @@ async function pollAccountLoop(
       const queued = await getPending();
       for (const qm of queued) {
         if (abortSignal.aborted) break;
-        
+
+        // Fresh policy check at retry time (policy may have changed since message was queued)
+        const canAutoReply = isAutoReplyAllowed(qm.from, opts.config);
+
+        // Embed warning in content if blocked (agent needs to see it at retry time too)
+        const retryContent = canAutoReply
+          ? qm.content
+          : `⚠️ AUTO-REPLY BLOCKED: "${qm.from}" is not on your auto-reply allowlist. ` +
+            `Acknowledge this message to your human but do NOT send a ClawTell reply unless explicitly told to.\n\n` +
+            qm.content;
+
         const ok = await dispatchToAgent(runtime, opts, qm.apiKey, qm.replyApiKey || qm.apiKey, {
           msgId: qm.id,
           senderName: qm.from,
           toName: qm.toName,
           agentName: qm.agent,
-          messageContent: qm.content,
+          messageContent: retryContent,
           rawBody: qm.rawBody,
           subject: qm.subject,
           createdAt: qm.createdAt,
           replyToMessageId: qm.replyToMessageId,
+          autoReplyAllowed: canAutoReply,
         });
         
         if (ok) {
@@ -1116,16 +1171,28 @@ async function pollAccountLoop(
         
         // Dispatch to agent session (use per-route apiKey for replies)
         const replyKey = resolveReplyKey(route, apiKey);
+
+        // Auto-reply policy check
+        const canAutoReply = isAutoReplyAllowed(senderName, opts.config);
+        console.log(`[ClawTell] Auto-reply for ${senderName}: ${canAutoReply ? 'ALLOWED' : 'WAIT FOR HUMAN'}`);
+
+        const finalMessageContent = canAutoReply
+          ? agentMessageContent
+          : `⚠️ AUTO-REPLY BLOCKED: "${senderName}" is not on your auto-reply allowlist. ` +
+            `Acknowledge this message to your human but do NOT send a ClawTell reply unless explicitly told to.\n\n` +
+            agentMessageContent;
+
         const ok = await dispatchToAgent(runtime, opts, apiKey, replyKey, {
           msgId: msg.id,
           senderName,
           toName,
           agentName,
-          messageContent: agentMessageContent,
+          messageContent: finalMessageContent,
           rawBody: msg.body,
           subject: msg.subject,
           createdAt: msg.createdAt,
           replyToMessageId: msg.replyToMessageId,
+          autoReplyAllowed: canAutoReply,
         });
         
         if (ok) {
@@ -1233,7 +1300,11 @@ async function pollLegacyLoop(
           ? `🦞🦞 ClawTell Delivery 🦞🦞\nfrom tell/${senderName}\n**Subject:** ${msg.subject}\n\n${msg.body}`
           : `🦞🦞 ClawTell Delivery 🦞🦞\nfrom tell/${senderName}\n\n${msg.body}`;
         
-        const agentMessageContent = messageContent + attachmentSuffix;
+        const agentMessageContent = canAutoReply
+          ? messageContent + attachmentSuffix
+          : `⚠️ AUTO-REPLY BLOCKED: "${senderName}" is not on your auto-reply allowlist. ` +
+            `Acknowledge this message to your human but do NOT send a ClawTell reply unless explicitly told to.\n\n` +
+            messageContent + attachmentSuffix;
         
         try {
           await forwardToActiveChannel(runtime, messageContent, opts.config, "main", resolvedAttachments);
@@ -1264,6 +1335,11 @@ async function pollLegacyLoop(
           cfg: opts.config,
           dispatcherOptions: {
             deliver: async (payload: any) => {
+              // Gate: suppress reply if auto-reply is not allowed for this sender
+              if (!canAutoReply) {
+                console.log(`[ClawTell] Auto-reply suppressed for ${senderName} (not on allowlist)`);
+                return;
+              }
               console.log("[ClawTell] Sending reply back to", senderName);
               await fetch(`${CLAWTELL_API_BASE}/messages/send`, {
                 method: "POST",
