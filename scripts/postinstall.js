@@ -1,41 +1,177 @@
 #!/usr/bin/env node
-
 /**
  * ClawTell Channel Plugin — Post-install script
- * 
- * Automatically symlinks the ClawTell SKILL.md into every agent workspace
- * found in the OpenClaw config. This ensures ALL agents (not just the default)
- * get the ClawTell skill with mandatory forwarding rules.
- * 
+ *
  * Runs on: npm install -g @clawtell/clawtell
+ *
+ * 1. Symlinks SKILL.md into every agent workspace
+ * 2. Detects openclaw installation (any prefix, any path)
+ * 3. Auto-heals corrupted openclaw installs (from npm update -g)
+ * 4. Restarts the gateway if it was running
  */
 
-import { readFileSync, mkdirSync, symlinkSync, unlinkSync, existsSync, lstatSync } from 'fs';
+import { readFileSync, existsSync, lstatSync, mkdirSync, symlinkSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
+import { execSync, spawnSync } from 'child_process';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILL_SOURCE = join(__dirname, '..', 'skills', 'clawtell', 'SKILL.md');
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function run(cmd, opts = {}) {
+  try {
+    return execSync(cmd, { encoding: 'utf8', stdio: 'pipe', ...opts }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function findNpmGlobalRoot() {
+  return run('npm root -g');
+}
+
+function findOpenClawDir() {
+  const root = findNpmGlobalRoot();
+  if (root) {
+    const p = join(root, 'openclaw');
+    if (existsSync(p)) return p;
+  }
+  // Fallback: search common paths
+  const fallbacks = [
+    join(homedir(), '.npm-global', 'lib', 'node_modules', 'openclaw'),
+    '/usr/local/lib/node_modules/openclaw',
+    '/usr/lib/node_modules/openclaw',
+  ];
+  return fallbacks.find(p => existsSync(p)) || null;
+}
+
+function findOpenClawBin() {
+  const bin = run('which openclaw') || run('command -v openclaw');
+  if (bin) return bin;
+  const root = findNpmGlobalRoot();
+  if (root) {
+    const p = join(root, '..', 'bin', 'openclaw');
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
+
+function isGatewayRunning() {
+  return run('pgrep -f "openclaw.*gateway\\|openclaw-gateway"') !== null ||
+         run('systemctl --user is-active openclaw-gateway 2>/dev/null') === 'active';
+}
+
+function restartGateway(bin) {
+  const cmd = bin || 'openclaw';
+  console.log(`  🔄 Restarting gateway (${cmd} gateway restart)...`);
+  const result = spawnSync(cmd, ['gateway', 'restart'], { encoding: 'utf8', timeout: 15000 });
+  if (result.status === 0) {
+    console.log('  ✅ Gateway restarted\n');
+  } else {
+    // Try systemctl fallback
+    const svc = run('systemctl --user restart openclaw-gateway 2>/dev/null');
+    if (svc !== null) {
+      console.log('  ✅ Gateway restarted via systemctl\n');
+    } else {
+      console.log('  ⚠️  Could not restart gateway automatically. Run: openclaw gateway restart\n');
+    }
+  }
+}
+
+// ── OpenClaw integrity check + auto-heal ─────────────────────────────────────
+
+function checkAndHealOpenClaw() {
+  console.log('\n🔍 Checking OpenClaw installation...');
+
+  const openclawDir = findOpenClawDir();
+  const openclawBin = findOpenClawBin();
+
+  if (!openclawDir) {
+    console.log('  ℹ️  OpenClaw not found — skipping integrity check.\n');
+    return false;
+  }
+
+  let corrupted = false;
+  let reason = '';
+
+  try {
+    const pkg = JSON.parse(readFileSync(join(openclawDir, 'package.json'), 'utf8'));
+    const mainFile = join(openclawDir, pkg.main || 'dist/index.js');
+    const distDir = join(openclawDir, 'dist');
+
+    if (!existsSync(distDir)) {
+      corrupted = true;
+      reason = 'dist/ directory missing';
+    } else if (!existsSync(mainFile)) {
+      corrupted = true;
+      reason = `main entry missing: ${mainFile}`;
+    } else {
+      // Check for orphaned chunk references (the common npm update corruption pattern)
+      const mainContent = readFileSync(mainFile, 'utf8');
+      const chunkRefs = [...mainContent.matchAll(/import\(['"](\.\/[^'"]+)['"]\)/g)].map(m => m[1]);
+      for (const ref of chunkRefs.slice(0, 10)) {
+        const refPath = join(openclawDir, 'dist', ref.replace('./', '') + '.js');
+        if (!existsSync(refPath) && !existsSync(refPath.replace('.js', ''))) {
+          corrupted = true;
+          reason = `missing chunk: ${ref}`;
+          break;
+        }
+      }
+    }
+
+    if (!corrupted) {
+      console.log(`  ✅ OpenClaw v${pkg.version} — OK\n`);
+      return false;
+    }
+  } catch (err) {
+    corrupted = true;
+    reason = err.message;
+  }
+
+  // Auto-heal
+  const wasRunning = isGatewayRunning();
+  console.log(`  ❌ OpenClaw corrupted: ${reason}`);
+  console.log('  🔧 Auto-healing: running npm install -g openclaw@latest...');
+
+  if (wasRunning) {
+    run('systemctl --user stop openclaw-gateway 2>/dev/null || true');
+  }
+
+  const heal = spawnSync('npm', ['install', '-g', 'openclaw@latest'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 120000,
+  });
+
+  if (heal.status === 0) {
+    console.log('  ✅ OpenClaw reinstalled successfully');
+    if (wasRunning) restartGateway(openclawBin);
+    return true;
+  } else {
+    console.error('  ❌ Auto-heal failed. Run manually:');
+    console.error('     npm install -g openclaw@latest && openclaw gateway restart\n');
+    return false;
+  }
+}
+
+// ── Skill symlinking ──────────────────────────────────────────────────────────
 
 function findOpenClawConfig() {
   const paths = [
     join(homedir(), '.openclaw', 'openclaw.json'),
     join(homedir(), '.clawdbot', 'clawdbot.json'),
   ];
-  for (const p of paths) {
-    if (existsSync(p)) return p;
-  }
-  return null;
+  return paths.find(p => existsSync(p)) || null;
 }
 
 function getAgentWorkspaces(config) {
   const workspaces = new Set();
   const defaults = config?.agents?.defaults?.workspace || join(homedir(), 'workspace');
   workspaces.add(defaults);
-
-  const agents = config?.agents?.list || [];
-  for (const agent of agents) {
+  for (const agent of (config?.agents?.list || [])) {
     workspaces.add(agent.workspace || defaults);
   }
   return [...workspaces];
@@ -44,21 +180,13 @@ function getAgentWorkspaces(config) {
 function symlinkSkill(workspace) {
   const targetDir = join(workspace, 'skills', 'clawtell');
   const targetFile = join(targetDir, 'SKILL.md');
-
   try {
     mkdirSync(targetDir, { recursive: true });
-
-    // Remove existing file/symlink
-    if (existsSync(targetFile) || lstatSync(targetFile).isSymbolicLink()) {
-      unlinkSync(targetFile);
-    }
-  } catch {
-    // lstatSync throws if file doesn't exist at all — that's fine
-  }
-
-  try {
+    try {
+      if (existsSync(targetFile) || lstatSync(targetFile).isSymbolicLink()) unlinkSync(targetFile);
+    } catch { /* file didn't exist */ }
     symlinkSync(SKILL_SOURCE, targetFile);
-    console.log(`  ✅ ${workspace}/skills/clawtell/SKILL.md → plugin source`);
+    console.log(`  ✅ ${workspace}/skills/clawtell/SKILL.md`);
     return true;
   } catch (err) {
     console.log(`  ⚠️  ${workspace}: ${err.message}`);
@@ -66,68 +194,30 @@ function symlinkSkill(workspace) {
   }
 }
 
-function main() {
-  console.log('\n🦞 ClawTell: Installing skill for all agents...\n');
-
+function installSkills() {
+  console.log('\n🦞 ClawTell: Linking skill into agent workspaces...\n');
   if (!existsSync(SKILL_SOURCE)) {
-    console.log('  ⚠️  SKILL.md not found in plugin package. Skipping.');
+    console.log('  ⚠️  SKILL.md not found in plugin. Skipping.\n');
     return;
   }
-
   const configPath = findOpenClawConfig();
   if (!configPath) {
-    console.log('  ℹ️  No OpenClaw config found. Skill available at plugin path only.');
-    console.log('  ℹ️  If you have multiple agents, symlink skills/clawtell/SKILL.md into each workspace.');
+    console.log('  ℹ️  No OpenClaw config found — skill available at plugin path only.\n');
     return;
   }
-
-  let config;
   try {
-    config = JSON.parse(readFileSync(configPath, 'utf8'));
+    const config = JSON.parse(readFileSync(configPath, 'utf8'));
+    const workspaces = getAgentWorkspaces(config);
+    console.log(`  Found ${workspaces.length} workspace(s)\n`);
+    let ok = 0;
+    for (const ws of workspaces) { if (symlinkSkill(ws)) ok++; }
+    console.log(`\n  Done: ${ok}/${workspaces.length} workspaces linked.\n`);
   } catch (err) {
-    console.log(`  ⚠️  Could not read config: ${err.message}`);
-    return;
-  }
-
-  const workspaces = getAgentWorkspaces(config);
-  console.log(`  Found ${workspaces.length} workspace(s) in ${configPath}\n`);
-
-  let success = 0;
-  for (const ws of workspaces) {
-    if (symlinkSkill(ws)) success++;
-  }
-
-  console.log(`\n  Done: ${success}/${workspaces.length} workspaces linked.\n`);
-}
-
-main();
-
-// ── OpenClaw integrity check ─────────────────────────────────────────────────
-// Validates that the openclaw installation is intact after any package changes.
-// If corrupted, warns and prints the safe reinstall command.
-import { createRequire } from 'module';
-import { execSync } from 'child_process';
-
-function checkOpenClawIntegrity() {
-  console.log('  Checking OpenClaw installation integrity...');
-  try {
-    const require = createRequire(import.meta.url);
-    const openclawPkg = require('/home/claw/.npm-global/lib/node_modules/openclaw/package.json');
-    const mainFile = join('/home/claw/.npm-global/lib/node_modules/openclaw', openclawPkg.main || 'dist/index.js');
-    if (!existsSync(mainFile)) {
-      throw new Error(`Main entry missing: ${mainFile}`);
-    }
-    // Try to resolve the main file's imports by checking dist dir
-    const distDir = join('/home/claw/.npm-global/lib/node_modules/openclaw', 'dist');
-    if (!existsSync(distDir)) {
-      throw new Error('dist/ directory missing from openclaw');
-    }
-    console.log(`  ✅ OpenClaw v${openclawPkg.version} integrity OK\n`);
-  } catch (err) {
-    console.error(`\n  ❌ OpenClaw installation appears CORRUPTED: ${err.message}`);
-    console.error('  ⚠️  DO NOT use "npm update" to update openclaw — it can leave partial installs.');
-    console.error('  ✅ Safe fix: npm install -g openclaw@latest\n');
+    console.log(`  ⚠️  Could not read config: ${err.message}\n`);
   }
 }
 
-checkOpenClawIntegrity();
+// ── Main ──────────────────────────────────────────────────────────────────────
+
+checkAndHealOpenClaw();
+installSkills();
