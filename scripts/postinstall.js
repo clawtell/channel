@@ -131,30 +131,12 @@ function checkAndHealOpenClaw() {
     reason = err.message;
   }
 
-  // Auto-heal
-  const wasRunning = isGatewayRunning();
-  console.log(`  ❌ OpenClaw corrupted: ${reason}`);
-  console.log('  🔧 Auto-healing: running npm install -g openclaw@latest...');
-
-  if (wasRunning) {
-    run('systemctl --user stop openclaw-gateway 2>/dev/null || true');
-  }
-
-  const heal = spawnSync('npm', ['install', '-g', 'openclaw@latest'], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: 120000,
-  });
-
-  if (heal.status === 0) {
-    console.log('  ✅ OpenClaw reinstalled successfully');
-    if (wasRunning) restartGateway(openclawBin);
-    return true;
-  } else {
-    console.error('  ❌ Auto-heal failed. Run manually:');
-    console.error('     npm install -g openclaw@latest && openclaw gateway restart\n');
-    return false;
-  }
+  // Warn clearly — do not auto-update, user must decide
+  console.error(`\n  ❌ OpenClaw installation appears corrupted: ${reason}`);
+  console.error('  ⚠️  This is usually caused by running "npm update -g openclaw".');
+  console.error('  ✅ Fix it with a clean reinstall (takes ~30 seconds):');
+  console.error('\n     npm install -g openclaw@latest && openclaw gateway restart\n');
+  return false;
 }
 
 // ── Skill symlinking ──────────────────────────────────────────────────────────
