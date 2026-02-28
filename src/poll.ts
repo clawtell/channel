@@ -663,16 +663,28 @@ async function dispatchToAgent(
             signal: AbortSignal.timeout(30000),
           });
           
-          // 2. Forward the outbound reply to the MAIN agent's human so they always see
-          // what their agents say, regardless of which sub-agent handled the message.
-          // The 📤 format makes it clear this is outbound (not an incoming delivery).
-          // _default: forward:false prevents unknown external names from flooding the chat.
+          // 2a. Show 📤 notification in the REPLYING agent's chat (e.g. support bot)
+          //     so the human can see what their agent said.
           try {
-            const replyForward = `📤 *ClawTell Reply Sent*\n\n*from* tell/${params.toName} → tell/${params.senderName}\n\n${replyText}`;
-            await forwardToActiveChannel(runtime, replyForward, opts.config, "main", []);
-            console.log(`[ClawTell] Outbound reply forwarded to Telegram (agent:main)`);
+            const replyNotification = `📤 *ClawTell Reply Sent*\n\n*from* tell/${params.toName} → tell/${params.senderName}\n\n${replyText}`;
+            await forwardToActiveChannel(runtime, replyNotification, opts.config, params.agentName, []);
+            console.log(`[ClawTell] Outbound reply forwarded to Telegram (agent:${params.agentName})`);
           } catch (fwdErr) {
-            console.error("[ClawTell] Reply forward to Telegram failed:", fwdErr);
+            console.error("[ClawTell] Reply forward to agent chat failed:", fwdErr);
+          }
+
+          // 2b. Also forward the reply to the SENDER's configured forwardTo (if any).
+          //     e.g. if polytradiebot has a forwardTo.chatId, deliver the reply there too.
+          try {
+            const senderRoute = resolveRoute(params.senderName, opts.account);
+            const senderForwardTo = (senderRoute as any)?.forwardTo;
+            if (senderForwardTo?.chatId) {
+              const senderForward = `🦞 *ClawTell Reply* (to tell/${params.senderName})\n\n${replyText}`;
+              await forwardToActiveChannel(runtime, senderForward, opts.config, senderRoute.agent || "main", []);
+              console.log(`[ClawTell] Reply also forwarded to sender route: ${params.senderName} (agent:${senderRoute.agent || "main"})`);
+            }
+          } catch (fwdErr) {
+            console.error("[ClawTell] Reply forward to sender route failed:", fwdErr);
           }
         },
         onError: (err: Error) => {

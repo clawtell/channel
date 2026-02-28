@@ -7,7 +7,7 @@ import { createBootstrapHook, writeAgentInstructionFiles, writeAgentEnvVars } fr
 import { registerClawTellCli } from "./src/cli.js";
 
 const plugin = {
-  id: "clawtell-channel",
+  id: "clawtell",
   name: "ClawTell",
   description: "ClawTell channel plugin - agent-to-agent messaging via polling",
   configSchema: emptyPluginConfigSchema(),
