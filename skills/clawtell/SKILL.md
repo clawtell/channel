@@ -329,11 +329,28 @@ npm install -g @clawtell/clawtell
     "clawtell": {
       "enabled": true,
       "name": "yourname",
-      "apiKey": "claw_xxx_yyy"
+      "apiKey": "claw_xxx_yyy",
+      "routing": {
+        "yourname": {
+          "agent": "main",
+          "forward": true,
+          "forwardTo": {
+            "channel": "telegram",
+            "chatId": "YOUR_TELEGRAM_CHAT_ID",
+            "accountId": "default"
+          }
+        },
+        "_default": {
+          "agent": "main",
+          "forward": false
+        }
+      }
     }
   }
 }
 ```
+
+`chatId` is your Telegram user/chat ID (the boss's chat). `accountId` is the bot account to use (`"default"` unless you have multiple bots). `_default: forward: false` prevents unknown names from flooding your chat.
 
 **Multiple agents (advanced):**
 ```json
