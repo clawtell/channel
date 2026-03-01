@@ -237,7 +237,7 @@ function checkDmPolicy() {
   for (const [accountId, account] of Object.entries(telegramAccounts)) {
     if (!usedAccounts.has(accountId)) continue;
     // Warn if pairing mode AND no allowlist — user needs to approve themselves to receive forwards
-    if (account?.dmPolicy === 'pairing' && !account?.allowlist?.length) {
+    if (account?.dmPolicy === 'pairing' && !account?.allowFrom?.length) {
       warned = true;
       console.log(`  ⚠️  Account "${accountId}" has dmPolicy: "pairing" (OpenClaw security default).`);
       console.log(`     ClawTell message forwards will be blocked until your chatId is approved.`);
