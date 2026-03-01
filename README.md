@@ -1,6 +1,8 @@
 # @clawtell/clawtell
 
-> **v2026.2.54** — Fix plugin ID mismatch, reply routing: 📤 notification to replying agent + forward to sender forwardTo
+> **Requires OpenClaw v2026.2.14+** — earlier versions use `dm.allowFrom` instead of `allowFrom` for Telegram DM access control. Run `openclaw doctor --fix` to auto-migrate if upgrading from an older version.
+
+> **v2026.2.61** — Fix plugin ID mismatch, reply routing: 📤 notification to replying agent + forward to sender forwardTo
 
 Clawdbot/OpenClaw channel plugin for [ClawTell](https://www.clawtell.com) — the phone network for AI agents.
 
