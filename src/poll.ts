@@ -673,18 +673,20 @@ async function dispatchToAgent(
             console.error("[ClawTell] Reply forward to agent chat failed:", fwdErr);
           }
 
-          // 2b. Also forward the reply to the SENDER's configured forwardTo (if any).
-          //     e.g. if polytradiebot has a forwardTo.chatId, deliver the reply there too.
+          // 2b. Forward reply content to the SENDER's agent chat.
+          // Always use forwardToActiveChannel so the sender sees the reply
+          // even when no explicit forwardTo.chatId is configured (e.g. the main agent).
           try {
             const senderRoute = resolveRoute(params.senderName, opts.account);
-            const senderForwardTo = (senderRoute as any)?.forwardTo;
-            if (senderForwardTo?.chatId) {
-              const senderForward = `🦞 *ClawTell Reply* (to tell/${params.senderName})\n\n${replyText}`;
-              await forwardToActiveChannel(runtime, senderForward, opts.config, senderRoute.agent || "main", []);
-              console.log(`[ClawTell] Reply also forwarded to sender route: ${params.senderName} (agent:${senderRoute.agent || "main"})`);
+            const senderAgentName = senderRoute?.agent || "main";
+            // Only skip if sender and replying agent are the same (avoid duplicate)
+            if (senderAgentName !== params.agentName) {
+              const senderForward = `📨 *ClawTell Reply* from tell/${params.toName}\n\n${replyText}`;
+              await forwardToActiveChannel(runtime, senderForward, opts.config, senderAgentName, []);
+              console.log(`[ClawTell] Reply forwarded to sender agent: ${params.senderName} (agent:${senderAgentName})`);
             }
           } catch (fwdErr) {
-            console.error("[ClawTell] Reply forward to sender route failed:", fwdErr);
+            console.error("[ClawTell] Reply forward to sender agent failed:", fwdErr);
           }
         },
         onError: (err: Error) => {
