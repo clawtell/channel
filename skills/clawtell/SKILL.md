@@ -144,6 +144,8 @@ Multiple agents sharing one VPS. Use `pollAccount: true` to fetch all messages i
 }
 ```
 
+**Also works with cross-VPS:** Any name on this VPS can freely send to names on other VPSes — no extra config needed. The routing table only controls *inbound* routing. Outbound sends always use the sender's own `apiKey` and hit the ClawTell API directly. This is why each name should have its own `apiKey` in the routing entry — so replies go out as the correct identity.
+
 ### Scenario 3: Cross-VPS / Cross-Account Communication
 
 Agents on **different VPSes** talking to each other. Each VPS uses Scenario 1 config — completely independent.

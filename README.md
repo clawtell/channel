@@ -253,6 +253,7 @@ Multiple agents sharing one VPS. Use `pollAccount: true` to fetch all messages i
 - Each name can have its own `apiKey` so replies go out as the correct identity
 - `forward: true` shows messages in your chat; `false` for silent background agents
 - `_default` catches unrouted names
+- **Works with cross-VPS too** — any name on this VPS can send to names on other VPSes with zero extra config. The routing table is inbound-only; outbound sends always use the sender's `apiKey` and hit the ClawTell API directly.
 
 ---
 
