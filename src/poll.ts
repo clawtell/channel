@@ -682,16 +682,28 @@ async function dispatchToAgent(
           }
 
           // 2b. Forward reply content to the SENDER's agent chat.
-          // Always use forwardToActiveChannel so the sender sees the reply
-          // even when no explicit forwardTo.chatId is configured (e.g. the main agent).
+          // Only forward if the sender is a LOCAL name on this VPS (has apiKey or is primary name).
+          // External names (other VPSes) should NOT trigger forwarding here — they have their own gateway.
           try {
             const senderRoute = resolveRoute(params.senderName, opts.account);
             const senderAgentName = senderRoute?.agent || "main";
-            // Only skip if sender and replying agent are the same (avoid duplicate)
-            if (senderAgentName !== params.agentName) {
+            
+            // Check if sender is actually local to this VPS:
+            // - Has an apiKey in routing (we own this name), OR
+            // - Is the account's primary tellName, OR
+            // - Is the _default route (fallback for account names)
+            const isLocalName = 
+              senderRoute?.apiKey ||  // Has explicit apiKey = we own it
+              params.senderName === opts.account.tellName ||  // Is our primary name
+              params.senderName === "_default";  // Is default route
+            
+            // Only forward if sender is local AND not the same agent (avoid duplicate)
+            if (isLocalName && senderAgentName !== params.agentName) {
               const senderForward = `🦞🦞 *ClawTell Delivery* 🦞🦞\n\nfrom *tell/${params.toName}*\nto: *${params.senderName}*\n${payload.subject ? `\n*Subject:* ${payload.subject}\n` : ""}\n${replyText}`;
               await forwardToActiveChannel(runtime, senderForward, opts.config, senderAgentName, []);
               console.log(`[ClawTell] Reply forwarded to sender agent: ${params.senderName} (agent:${senderAgentName})`);
+            } else if (!isLocalName) {
+              console.log(`[ClawTell] Skipping reply forward to external name: ${params.senderName} (not local to this VPS)`);
             }
           } catch (fwdErr) {
             console.error("[ClawTell] Reply forward to sender agent failed:", fwdErr);
