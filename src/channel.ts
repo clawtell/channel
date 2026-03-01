@@ -10,6 +10,7 @@ import type {
   ChannelPlugin, 
   ClawdbotConfig,
   ChannelAccountSnapshot,
+  ChannelStatusIssue,
 } from "openclaw/plugin-sdk";
 import { 
   DEFAULT_ACCOUNT_ID,
@@ -85,6 +86,11 @@ export interface ClawTellRouteEntry {
   agent: string;
   forward: boolean;
   apiKey?: string;  // Per-agent reply key (overrides account-level key)
+  forwardTo?: {
+    channel?: string;
+    chatId?: string;
+    accountId?: string;
+  };
 }
 
 export type ClawTellRouting = Record<string, ClawTellRouteEntry>;
@@ -304,8 +310,8 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
       enabled: account.enabled,
       configured: account.configured,
     }),
-    resolveAllowFrom: () => [],
-    formatAllowFrom: ({ allowFrom }) => allowFrom,
+    resolveAllowFrom: (): string[] => [],
+    formatAllowFrom: ({ allowFrom }) => allowFrom.map(String),
   },
   security: {
     resolveDmPolicy: ({ account }) => ({
@@ -351,11 +357,11 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
       return next;
     },
     validateInput: ({ input }) => {
-      if (!input.name && !input.apiKey) {
+      if (!input.name && !(input as any).apiKey) {
         return "ClawTell requires --name and --api-key.";
       }
       if (!input.name) return "ClawTell requires --name (your tell/ name).";
-      if (!input.apiKey) return "ClawTell requires --api-key.";
+      if (!(input as any).apiKey) return "ClawTell requires --api-key.";
       return null;
     },
     applyAccountConfig: ({ cfg, accountId, input }) => {
@@ -368,14 +374,14 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
       if (accountId === DEFAULT_ACCOUNT_ID) {
         channelConfig.enabled = true;
         if (input.name) channelConfig.name = input.name.replace(/^tell\//, "");
-        if (input.apiKey) channelConfig.apiKey = input.apiKey;
+        if ((input as any).apiKey) channelConfig.apiKey = (input as any).apiKey;
       } else {
         if (!channelConfig.accounts) channelConfig.accounts = {};
         if (!channelConfig.accounts[accountId]) channelConfig.accounts[accountId] = {};
         const accountCfg = channelConfig.accounts[accountId];
         accountCfg.enabled = true;
         if (input.name) accountCfg.name = input.name.replace(/^tell\//, "");
-        if (input.apiKey) accountCfg.apiKey = input.apiKey;
+        if ((input as any).apiKey) accountCfg.apiKey = (input as any).apiKey;
       }
       
       return next;
@@ -403,10 +409,7 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
       });
       
       if (!account.apiKey) {
-        return { 
-          ok: false, 
-          error: new Error("ClawTell API key not configured") 
-        };
+        throw new Error("ClawTell API key not configured");
       }
       
       const result = await sendClawTellMessage({
@@ -416,31 +419,28 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
         replyToId: replyToId ?? undefined,
       });
       
-      return { channel: "clawtell", ...result };
+      return { channel: "clawtell" as const, messageId: result.messageId ?? "", ...result };
     },
-    sendMedia: async ({ cfg, to, caption, mediaUrl, accountId, replyToId }) => {
+    sendMedia: async ({ cfg, to, text, mediaUrl, accountId, replyToId }) => {
       const account = resolveClawTellAccount({ 
         cfg: cfg as ClawdbotConfig, 
         accountId: accountId ?? undefined 
       });
       
       if (!account.apiKey) {
-        return { 
-          ok: false, 
-          error: new Error("ClawTell API key not configured") 
-        };
+        throw new Error("ClawTell API key not configured");
       }
       
       // ClawTell doesn't support native media, so we include the URL in the message
       const result = await sendClawTellMediaMessage({
         apiKey: account.apiKey,
         to,
-        body: caption ?? "Media attachment",
+        body: text ?? "Media attachment",
         mediaUrl: mediaUrl ?? undefined,
         replyToId: replyToId ?? undefined,
       });
       
-      return { channel: "clawtell", ...result };
+      return { channel: "clawtell" as const, messageId: result.messageId ?? "", ...result };
     },
   },
   status: {
@@ -451,10 +451,17 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
       lastStopAt: null,
       lastError: null,
     },
-    collectStatusIssues: ({ account }) => {
-      const issues: string[] = [];
-      if (!account?.configured) {
-        issues.push("ClawTell not configured: set channels.clawtell.name and channels.clawtell.apiKey");
+    collectStatusIssues: (accounts) => {
+      const issues: ChannelStatusIssue[] = [];
+      for (const account of accounts) {
+        if (!account?.configured) {
+          issues.push({
+            channel: "clawtell",
+            accountId: account.accountId,
+            kind: "config",
+            message: "ClawTell not configured: set channels.clawtell.name and channels.clawtell.apiKey",
+          });
+        }
       }
       return issues;
     },
@@ -480,7 +487,7 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
         name: account.name,
         enabled: account.enabled,
         configured: account.configured,
-        tellName: account.tellName,
+        // tellName stored in name field above
         running,
         connected: probeOk ?? running,
         lastStartAt: runtime?.lastStartAt ?? null,
@@ -499,7 +506,6 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
       
       ctx.setStatus({
         accountId: account.accountId,
-        tellName: account.tellName,
       });
       
       ctx.log?.info(`[${account.accountId}] starting ClawTell (name=${account.tellName}, poll=${account.pollIntervalMs}ms)`);

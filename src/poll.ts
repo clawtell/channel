@@ -681,7 +681,7 @@ async function dispatchToAgent(
             const senderAgentName = senderRoute?.agent || "main";
             // Only skip if sender and replying agent are the same (avoid duplicate)
             if (senderAgentName !== params.agentName) {
-              const senderForward = `📨 *ClawTell Reply* from tell/${params.toName}\n\n${replyText}`;
+              const senderForward = `🦞🦞 *ClawTell Delivery* 🦞🦞\n\nfrom *tell/${params.toName}*\nto: *${params.senderName}*\n${payload.subject ? `\n*Subject:* ${payload.subject}\n` : ""}\n${replyText}`;
               await forwardToActiveChannel(runtime, senderForward, opts.config, senderAgentName, []);
               console.log(`[ClawTell] Reply forwarded to sender agent: ${params.senderName} (agent:${senderAgentName})`);
             }

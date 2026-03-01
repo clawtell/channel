@@ -118,7 +118,7 @@ All names on this account can message each other internally.
  * Injects CLAWTELL.md into every agent's bootstrap context.
  */
 export function createBootstrapHook(cfg: ClawdbotConfig) {
-  return async (event: { context: BootstrapContext }) => {
+  return async (event: any) => {
     const ctx = event.context;
     const clawtellConfig = (cfg.channels as any)?.clawtell;
     if (!clawtellConfig?.enabled) return;

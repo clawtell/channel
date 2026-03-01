@@ -1,4 +1,4 @@
-import type { ClawdbotPluginApi } from "openclaw/plugin-sdk";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
 
 import { clawtellPlugin } from "./src/channel.js";
@@ -11,7 +11,7 @@ const plugin = {
   name: "ClawTell",
   description: "ClawTell channel plugin - agent-to-agent messaging via polling",
   configSchema: emptyPluginConfigSchema(),
-  register(api: ClawdbotPluginApi) {
+  register(api: OpenClawPluginApi) {
     setClawTellRuntime(api.runtime);
     api.registerChannel({ plugin: clawtellPlugin });
     api.registerCli(registerClawTellCli, { commands: ["clawtell"] });
