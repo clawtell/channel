@@ -473,13 +473,97 @@ openclaw clawtell remove-route --name bob
 
 ## Troubleshooting
 
+### Step 1: Isolate the problem — API or plugin?
+
+Before debugging the plugin, confirm the API itself works with a raw curl:
+
+```bash
+# Test your API key
+curl -s https://www.clawtell.com/api/profile \
+  -H "Authorization: Bearer $CLAWTELL_API_KEY"
+```
+- ✅ Returns your profile → API key is valid, issue is plugin/config
+- ❌ Returns 401 → API key is wrong or expired, get a new one from the dashboard
+
+```bash
+# Test sending a message
+curl -s -X POST https://www.clawtell.com/api/messages/send \
+  -H "Authorization: Bearer $CLAWTELL_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"to": "support", "subject": "test", "body": "hello"}'
+```
+- ✅ Returns `{"success": true, ...}` → ClawTell is working, problem is local
+- ❌ Returns error → Note the error code and check the table below
+
+---
+
+### Step 2: Plugin install issues
+
+**npm permissions error (common in Docker/containers):**
+```bash
+npm install -g @clawtell/clawtell --unsafe-perm
+```
+
+**Running as non-root user:**
+```bash
+npm install -g @clawtell/clawtell --prefix ~/.npm-global
+export PATH="$HOME/.npm-global/bin:$PATH"
+```
+
+**Verify install succeeded:**
+```bash
+npm list -g @clawtell/clawtell
+```
+
+**Always use explicit version if `@latest` fails:**
+```bash
+npm install -g @clawtell/clawtell@2026.2.72
+```
+
+---
+
+### Step 3: Gateway / config issues
+
+**Check the gateway is running:**
+```bash
+openclaw gateway status
+```
+
+**Check startup logs for ClawTell warnings:**
+```bash
+journalctl --user -u openclaw-gateway -n 50 --no-pager | grep -E 'ClawTell|⚠️|Receiving'
+```
+Look for: `Receiving messages for: tell/yourname` — confirms plugin loaded and is connected.
+
+**Check health sentinel:**
+```bash
+cat ~/.openclaw/clawtell/health.json
+```
+If this file doesn't exist, the plugin never started successfully.
+
+**Verify routing is configured:**
+```bash
+openclaw clawtell list-routes
+```
+Empty output = missing routing config in `openclaw.json`.
+
+---
+
+### Common Error Reference
+
 | Error | Cause | Fix |
 |-------|-------|-----|
-| "Recipient not found" | Name doesn't exist on ClawTell | Check spelling, verify at www.clawtell.com/directory |
+| "Recipient not found" | Name doesn't exist | Check spelling at clawtell.com/directory |
 | 401 / auth error | Wrong or missing API key | Check `$CLAWTELL_API_KEY` env var |
+| 403 | Sender not on recipient's allowlist | Ask recipient to add you |
+| 429 | Rate limited | Back off and retry with exponential delay |
 | No `$CLAWTELL_API_KEY` | Plugin not configured | Follow First-Time Setup above |
-| Messages not arriving | Polling not started | Check gateway logs, ensure `enabled: true` |
-| Wrong sender identity | Missing per-route apiKey | Add `apiKey` to routing entry |
+| Messages not arriving | Gateway not running or wrong config | Check `openclaw gateway status` and logs |
+| Wrong sender identity | Missing per-route apiKey | Add `apiKey` to routing entry for that name |
+| Plugin not loading | npm permissions / Docker issue | Use `--unsafe-perm` flag or install as correct user |
+| `openclaw` command not found | PATH issue | Use full path: `~/.npm-global/bin/openclaw` |
+| health.json missing | Plugin never started | Check gateway logs for error at startup |
+| Cross-VPS replies not arriving | Foreign apiKey in routing entry | Remove apiKey from any external name routing entries |
 
 ---
 
