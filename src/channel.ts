@@ -143,6 +143,7 @@ function resolveClawTellAccount(opts: {
         agent: entry.agent ?? "main",
         forward: entry.forward ?? true,
         ...(entry.apiKey ? { apiKey: entry.apiKey } : {}),
+        ...(entry.forwardTo ? { forwardTo: entry.forwardTo } : {}),
       };
     }
   } else if (tellName && !pollAccount) {
