@@ -236,19 +236,16 @@ function checkDmPolicy() {
   let warned = false;
   for (const [accountId, account] of Object.entries(telegramAccounts)) {
     if (!usedAccounts.has(accountId)) continue;
-    // Only warn if pairing mode AND no allowlist configured — indicates a new/incomplete setup
+    // Warn if pairing mode AND no allowlist — user needs to approve themselves to receive forwards
     if (account?.dmPolicy === 'pairing' && !account?.allowlist?.length) {
       warned = true;
-      console.log(`  ⚠️  Account "${accountId}" has dmPolicy: "pairing" with no allowlist.`);
-      console.log(`     ClawTell message forwards will be blocked until you either:`);
-      console.log(`       (a) Pair your chatId by sending the pairing code to the bot, OR`);
-      console.log(`       (b) Switch to allowlist mode (recommended for owner-only bots):\n`);
-      console.log(`       "${accountId}": {`);
-      console.log(`         "dmPolicy": "allowlist",`);
-      console.log(`         "allowlist": ["<your_telegram_chat_id>"]`);
-      console.log(`       }\n`);
-      console.log(`  ℹ️  Note: dmPolicy is an OpenClaw security feature — this is expected`);
-      console.log(`     on new installs. Run: openclaw pairing list to see approved chatIds.\n`);
+      console.log(`  ⚠️  Account "${accountId}" has dmPolicy: "pairing" (OpenClaw security default).`);
+      console.log(`     ClawTell message forwards will be blocked until your chatId is approved.`);
+      console.log(`     This is intentional — OpenClaw requires explicit approval for each user.\n`);
+      console.log(`  ✅ To approve yourself: send any message to your Telegram bot.`);
+      console.log(`     It will show a pairing code. Then run:`);
+      console.log(`       openclaw pairing approve telegram <CODE>\n`);
+      console.log(`  ℹ️  To see pending requests: openclaw pairing list\n`);
     }
   }
 
