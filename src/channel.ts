@@ -520,13 +520,17 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
         if (entry.apiKey) {
           const entryPrefix = entry.apiKey.split("_")[1] ?? null;
           if (accountPrefix && entryPrefix && entryPrefix !== accountPrefix) {
-            ctx.log?.warn(
-              `[ClawTell] ⚠️  Routing entry "${routeName}" has an apiKey from a different ` +
-              `ClawTell account (prefix: ${entryPrefix} ≠ ${accountPrefix}). ` +
-              `Messages addressed to "${routeName}" will NOT arrive here — they go to their ` +
-              `own VPS/gateway. Remove this apiKey unless you explicitly want replies sent ` +
-              `using ${routeName}'s credentials (unusual).`
-            );
+            // Different account prefix — this is expected for Scenario 2 (multi-name same VPS,
+            // each name has its own ClawTell account + apiKey). Only warn if the name also has
+            // no agent assigned (meaning it's a pure routing passthrough, which is suspicious).
+            const hasLocalAgent = entry.agent && entry.agent !== "main";
+            if (!hasLocalAgent) {
+              ctx.log?.warn(
+                `[ClawTell] ⚠️  Routing entry "${routeName}" has an apiKey from a different ` +
+                `ClawTell account (prefix: ${entryPrefix} ≠ ${accountPrefix}) and no dedicated agent. ` +
+                `If "${routeName}" is external (different VPS), remove this apiKey.`
+              );
+            }
           }
         }
         // Warn about entries that reference agents not in the config
