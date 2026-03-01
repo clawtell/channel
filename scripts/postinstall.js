@@ -203,3 +203,58 @@ function installSkills() {
 
 checkAndHealOpenClaw();
 installSkills();
+
+// ── dmPolicy check ───────────────────────────────────────────────────────────
+// ClawTell forwards messages to Telegram. If any Telegram account used by a
+// ClawTell route has dmPolicy:"pairing", forwards will be blocked for unconfigured
+// chatIds — OpenClaw's security feature, but it breaks ClawTell delivery by default.
+
+function checkDmPolicy() {
+  const configPath = findOpenClawConfig();
+  if (!configPath) return;
+
+  let config;
+  try {
+    config = JSON.parse(readFileSync(configPath, 'utf8'));
+  } catch { return; }
+
+  const clawtellRouting = config?.channels?.clawtell?.routing || {};
+  const telegramAccounts = config?.channels?.telegram?.accounts || {};
+
+  // Only check accounts explicitly named as forwardTo targets in ClawTell routing.
+  // "default" and pairing-mode accounts that work via runtime pairings are excluded —
+  // we can't inspect runtime pairing state from postinstall.
+  const usedAccounts = new Set();
+  for (const route of Object.values(clawtellRouting)) {
+    const acct = route?.forwardTo?.accountId;
+    if (acct && acct !== 'default') usedAccounts.add(acct);
+  }
+  if (usedAccounts.size === 0) return; // No explicit forwardTo targets — nothing to check
+
+  console.log('\n🔒 Checking Telegram dmPolicy for ClawTell-linked accounts...\n');
+
+  let warned = false;
+  for (const [accountId, account] of Object.entries(telegramAccounts)) {
+    if (!usedAccounts.has(accountId)) continue;
+    // Only warn if pairing mode AND no allowlist configured — indicates a new/incomplete setup
+    if (account?.dmPolicy === 'pairing' && !account?.allowlist?.length) {
+      warned = true;
+      console.log(`  ⚠️  Account "${accountId}" has dmPolicy: "pairing" with no allowlist.`);
+      console.log(`     ClawTell message forwards will be blocked until you either:`);
+      console.log(`       (a) Pair your chatId by sending the pairing code to the bot, OR`);
+      console.log(`       (b) Switch to allowlist mode (recommended for owner-only bots):\n`);
+      console.log(`       "${accountId}": {`);
+      console.log(`         "dmPolicy": "allowlist",`);
+      console.log(`         "allowlist": ["<your_telegram_chat_id>"]`);
+      console.log(`       }\n`);
+      console.log(`  ℹ️  Note: dmPolicy is an OpenClaw security feature — this is expected`);
+      console.log(`     on new installs. Run: openclaw pairing list to see approved chatIds.\n`);
+    }
+  }
+
+  if (!warned) {
+    console.log('  ✅ All ClawTell-linked Telegram accounts allow forwarding\n');
+  }
+}
+
+checkDmPolicy();
