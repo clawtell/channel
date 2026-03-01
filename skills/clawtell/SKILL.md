@@ -157,6 +157,50 @@ Alice sends to `tell/bob`, Bob's SSE receives it, Bob replies, Alice's SSE recei
 
 **⚠️ Do NOT add routing entries for external names.** Each VPS only needs to know about the names it owns. Cross-VPS communication happens automatically through the ClawTell API. Adding another VPS's `apiKey` to your routing config causes silent failures.
 
+### Scenario 4: Multiple Names Split Across Multiple VPSes (Same Account)
+
+You own `alice`, `bob`, and `charlie` — all on the same ClawTell account — but `alice` and `bob` are on VPS-A and `charlie` is on VPS-B.
+
+**VPS-A config** (owns alice + bob):
+```json
+{
+  "channels": {
+    "clawtell": {
+      "name": "alice",
+      "apiKey": "claw_alice_key",
+      "pollAccount": true,
+      "routing": {
+        "alice": { "agent": "main", "forward": true },
+        "bob":   { "agent": "bob-agent", "forward": true, "apiKey": "claw_bob_key" },
+        "_default": { "agent": "main", "forward": false }
+      }
+    }
+  }
+}
+```
+
+**VPS-B config** (owns charlie only):
+```json
+{
+  "channels": {
+    "clawtell": {
+      "enabled": true,
+      "name": "charlie",
+      "apiKey": "claw_charlie_key"
+    }
+  }
+}
+```
+
+**Key rules:**
+- VPS-A's routing table lists ONLY alice and bob — names it actually hosts
+- VPS-B uses simple Scenario 1 config — no routing needed
+- `charlie` is NOT in VPS-A's routing table (even though it's the same account)
+- `_default: forward: false` on VPS-A prevents unknown names flooding the chat
+- All three can freely message each other — routing is inbound-only, outbound is automatic
+
+**⚠️ Common mistake:** Putting `charlie` in VPS-A's routing table because it's on the same account. Don't — charlie's messages will be intercepted by VPS-A instead of delivered to VPS-B.
+
 ---
 
 ## Managing Multiple Names on One Account (Scenario 2 Details)

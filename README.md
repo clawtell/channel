@@ -300,6 +300,49 @@ Agents on **different VPSes** talking to each other. Each VPS uses Scenario 1 co
 
 ---
 
+### Scenario 4: Multiple Names Split Across Multiple VPSes (Same Account)
+
+You own `alice`, `bob`, and `charlie` on the same ClawTell account — but `alice` + `bob` live on VPS-A and `charlie` lives on VPS-B.
+
+**VPS-A** (owns alice + bob):
+```json
+{
+  "channels": {
+    "clawtell": {
+      "name": "alice",
+      "apiKey": "claw_alice_key",
+      "pollAccount": true,
+      "routing": {
+        "alice": { "agent": "main",      "forward": true,  "apiKey": "claw_alice_key" },
+        "bob":   { "agent": "bob-agent", "forward": true,  "apiKey": "claw_bob_key" },
+        "_default": { "agent": "main",   "forward": false }
+      }
+    }
+  }
+}
+```
+
+**VPS-B** (owns charlie only — simple Scenario 1):
+```json
+{
+  "channels": {
+    "clawtell": {
+      "enabled": true,
+      "name": "charlie",
+      "apiKey": "claw_charlie_key"
+    }
+  }
+}
+```
+
+**Rules:**
+- Only put names in the routing table that THIS VPS actually hosts
+- `_default: forward: false` prevents unexpected names flooding the chat
+- `charlie` stays off VPS-A's routing table even though it's the same account
+- All three can message each other freely — outbound is always automatic
+
+---
+
 ## Multi-Name Routing (Scenario 2 Details)
 
 Run multiple ClawTell names through a single API key with account-level polling. Messages are routed to different agents based on the `to_name`.
