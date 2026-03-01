@@ -509,6 +509,39 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
       });
       
       ctx.log?.info(`[${account.accountId}] starting ClawTell (name=${account.tellName}, poll=${account.pollIntervalMs}ms)`);
+
+      // Validate routing entries — warn about foreign apiKeys that will never be used
+      // and detect entries that cannot receive messages (different account).
+      // API key format: claw_<accountPrefix>_<secret>
+      // Keys sharing the same accountPrefix are on the same ClawTell account.
+      const accountPrefix = account.apiKey?.split("_")[1] ?? null;
+      for (const [routeName, entry] of Object.entries(account.routing)) {
+        if (routeName === "_default") continue;
+        if (entry.apiKey) {
+          const entryPrefix = entry.apiKey.split("_")[1] ?? null;
+          if (accountPrefix && entryPrefix && entryPrefix !== accountPrefix) {
+            ctx.log?.warn(
+              `[ClawTell] ⚠️  Routing entry "${routeName}" has an apiKey from a different ` +
+              `ClawTell account (prefix: ${entryPrefix} ≠ ${accountPrefix}). ` +
+              `Messages addressed to "${routeName}" will NOT arrive here — they go to their ` +
+              `own VPS/gateway. Remove this apiKey unless you explicitly want replies sent ` +
+              `using ${routeName}'s credentials (unusual).`
+            );
+          }
+        }
+        // Warn about entries that reference agents not in the config
+        const agentList = (ctx.cfg as any)?.agents?.list as Array<{ id: string }> | undefined;
+        if (agentList && routeName !== "_default" && entry.agent !== "main") {
+          const knownAgents = agentList.map((a) => a.id);
+          if (!knownAgents.includes(entry.agent)) {
+            ctx.log?.warn(
+              `[ClawTell] ⚠️  Routing entry "${routeName}" references unknown agent "${entry.agent}". ` +
+              `Known agents: ${knownAgents.join(", ")}. Messages to "${routeName}" will be ` +
+              `dispatched to agent "${entry.agent}" which may not exist.`
+            );
+          }
+        }
+      }
       
       // Write health sentinel so operators can verify the plugin started
       writeHealthSentinel({

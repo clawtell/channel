@@ -17,6 +17,7 @@ import type { ClawdbotConfig } from "openclaw/plugin-sdk";
 import type { ResolvedClawTellAccount, ClawTellRouteEntry } from "./channel.js";
 import { getClawTellRuntime, type ClawTellRuntime } from "./runtime.js";
 import { enqueue, dequeue, markAttempt, getPending, type QueuedMessage } from "./queue.js";
+import { sendClawTellMessage } from "./send.js";
 
 const CLAWTELL_API_BASE = "https://www.clawtell.com/api";
 
@@ -647,21 +648,28 @@ async function dispatchToAgent(
           const replyText = payload.text || payload.content;
           console.log(`[ClawTell] Sending reply from ${params.toName} to ${params.senderName} (key=${replyApiKey === apiKey ? 'account' : 'route-specific'})`);
           
-          // 1. Send reply back via ClawTell
-          await fetch(`${CLAWTELL_API_BASE}/messages/send`, {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${replyApiKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              to: params.senderName,
-              body: replyText,
-              subject: payload.subject,
-              from_name: params.toName,
-            }),
-            signal: AbortSignal.timeout(30000),
+          // 1. Send reply back via ClawTell (with retry + response validation)
+          const sendResult = await sendClawTellMessage({
+            apiKey: replyApiKey,
+            to: params.senderName,
+            body: replyText,
+            subject: payload.subject,
+            fromName: params.toName,
           });
+
+          if (!sendResult.ok) {
+            const errMsg = sendResult.error?.message ?? "unknown error";
+            const retries = sendResult.retryCount ?? 0;
+            console.error(`[ClawTell] Reply to tell/${params.senderName} FAILED after ${retries} retries: ${errMsg}`);
+            // Surface failure to human immediately — don't let it disappear silently
+            try {
+              await forwardToActiveChannel(runtime,
+                `⚠️ *ClawTell Reply Failed*\n\nCould not send reply from tell/${params.toName} → tell/${params.senderName}\nError: ${errMsg}${retries > 0 ? `\nRetried ${retries}x` : ""}`,
+                opts.config, params.agentName, []);
+            } catch { /* best effort */ }
+            throw new Error(`ClawTell reply failed: ${errMsg}`);
+          }
+          console.log(`[ClawTell] Reply sent ok: messageId=${sendResult.messageId}${sendResult.retryCount ? ` (retries: ${sendResult.retryCount})` : ""}`);
           
           // 2a. Show 📤 notification in the REPLYING agent's chat (e.g. support bot)
           //     so the human can see what their agent said.
@@ -1363,20 +1371,24 @@ async function pollLegacyLoop(
                 return;
               }
               console.log("[ClawTell] Sending reply back to", senderName);
-              await fetch(`${CLAWTELL_API_BASE}/messages/send`, {
-                method: "POST",
-                headers: {
-                  "Authorization": `Bearer ${apiKey}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  to: senderName,
-                  body: payload.text || payload.content,
-                  subject: payload.subject,
-                  reply_to_id: msg.id,
-                }),
-                signal: AbortSignal.timeout(30000),
+              const legacyResult = await sendClawTellMessage({
+                apiKey,
+                to: senderName,
+                body: payload.text || payload.content,
+                subject: payload.subject,
+                replyToId: msg.id,
               });
+              if (!legacyResult.ok) {
+                const errMsg = legacyResult.error?.message ?? "unknown error";
+                console.error(`[ClawTell] Reply to tell/${senderName} FAILED: ${errMsg}`);
+                try {
+                  await forwardToActiveChannel(runtime,
+                    `⚠️ *ClawTell Reply Failed*\n\nCould not reply to tell/${senderName}\nError: ${errMsg}`,
+                    opts.config, "main", []);
+                } catch { /* best effort */ }
+                throw new Error(`ClawTell reply failed: ${errMsg}`);
+              }
+              console.log(`[ClawTell] Reply sent ok: messageId=${legacyResult.messageId}`);
             },
             onError: (err: Error) => {
               console.error("[ClawTell] Reply delivery error:", err);
