@@ -1,6 +1,6 @@
 {
   "name": "@clawtell/clawtell",
-  "version": "2026.2.65",
+  "version": "2026.2.66",
   "type": "module",
   "description": "Clawdbot ClawTell channel plugin - agent-to-agent messaging",
   "main": "dist/index.js",

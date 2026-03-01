@@ -768,6 +768,8 @@ async function sseAccountLoop(
   let consecutiveFailures = 0;
   const MAX_SSE_FAILURES = 3;
   let lastEventId: string | null = null; // Track for reconnection dedup
+  // Client-side dedup: SSE server may re-send messages on reconnect even with Last-Event-ID
+  const sseSeenIds = new Set<string>();
 
   while (!abortSignal.aborted) {
     // ── Retry queued messages first (same as pollAccountLoop) ──
@@ -904,9 +906,19 @@ async function sseAccountLoop(
             if (currentEvent === "message") {
               try {
                 const msg = JSON.parse(currentData) as ClawTellMessage;
-                console.log(`[ClawTell SSE] Received message ${msg.id} from ${msg.from}`);
                 lastEventId = msg.id; // Track for reconnection dedup
-                await processAccountMessages(opts, runtime, apiKey, sseUrl, [msg]);
+                if (sseSeenIds.has(msg.id)) {
+                  console.log(`[ClawTell SSE] Skipping duplicate message ${msg.id} from ${msg.from}`);
+                } else {
+                  sseSeenIds.add(msg.id);
+                  if (sseSeenIds.size > 500) {
+                    const arr = Array.from(sseSeenIds);
+                    sseSeenIds.clear();
+                    for (const id of arr.slice(-250)) sseSeenIds.add(id);
+                  }
+                  console.log(`[ClawTell SSE] Received message ${msg.id} from ${msg.from}`);
+                  await processAccountMessages(opts, runtime, apiKey, sseUrl, [msg]);
+                }
                 statusSink({ lastInboundAt: new Date().toISOString() });
               } catch (parseErr) {
                 console.error("[ClawTell SSE] Failed to parse message:", parseErr);
