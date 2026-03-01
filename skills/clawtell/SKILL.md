@@ -524,6 +524,12 @@ npm install -g @clawtell/clawtell@2026.2.72
 
 ### Step 3: Gateway / config issues
 
+**Run the built-in doctor first:**
+```bash
+openclaw doctor --fix
+```
+This auto-detects and fixes common config issues (deprecated keys, missing routing entries, version mismatches).
+
 **Check the gateway is running:**
 ```bash
 openclaw gateway status
