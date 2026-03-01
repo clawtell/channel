@@ -510,42 +510,81 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
       
       ctx.log?.info(`[${account.accountId}] starting ClawTell (name=${account.tellName}, poll=${account.pollIntervalMs}ms)`);
 
-      // Validate routing entries — warn about foreign apiKeys that will never be used
-      // and detect entries that cannot receive messages (different account).
+      // ── Startup validation ──────────────────────────────────────────────────
+      // Validate routing entries and surface likely misconfigurations.
       // API key format: claw_<accountPrefix>_<secret>
-      // Keys sharing the same accountPrefix are on the same ClawTell account.
       const accountPrefix = account.apiKey?.split("_")[1] ?? null;
+
+      // Collect agent IDs once for unknown-agent checks
+      const agentList = (ctx.cfg as any)?.agents?.list as Array<{ id: string }> | undefined;
+      const knownAgentIds = agentList?.map((a) => a.id) ?? [];
+
+      // Track which names will actually receive messages on this VPS
+      const receivableNames: string[] = [];
+      if (account.tellName) receivableNames.push(account.tellName);
+
       for (const [routeName, entry] of Object.entries(account.routing)) {
         if (routeName === "_default") continue;
-        if (entry.apiKey) {
-          const entryPrefix = entry.apiKey.split("_")[1] ?? null;
-          if (accountPrefix && entryPrefix && entryPrefix !== accountPrefix) {
-            // Different account prefix — this is expected for Scenario 2 (multi-name same VPS,
-            // each name has its own ClawTell account + apiKey). Only warn if the name also has
-            // no agent assigned (meaning it's a pure routing passthrough, which is suspicious).
-            const hasLocalAgent = entry.agent && entry.agent !== "main";
-            if (!hasLocalAgent) {
-              ctx.log?.warn(
-                `[ClawTell] ⚠️  Routing entry "${routeName}" has an apiKey from a different ` +
-                `ClawTell account (prefix: ${entryPrefix} ≠ ${accountPrefix}) and no dedicated agent. ` +
-                `If "${routeName}" is external (different VPS), remove this apiKey.`
-              );
-            }
-          }
+
+        const entryPrefix = entry.apiKey?.split("_")[1] ?? null;
+        const hasForeignKey = accountPrefix && entryPrefix && entryPrefix !== accountPrefix;
+        const hasDedicatedAgent = entry.agent && entry.agent !== "main";
+        const isAccountPrimary = routeName === account.tellName;
+
+        // ① Routing entry with a foreign apiKey but no dedicated agent
+        //    This is the "stray external name" pattern that caused today's bug.
+        //    Scenario 2 legitimately uses foreign keys but ALWAYS has a dedicated agent.
+        if (hasForeignKey && !hasDedicatedAgent) {
+          ctx.log?.warn(
+            `[ClawTell] ⚠️  Routing entry "${routeName}" has an apiKey from a different account` +
+            ` (prefix ${entryPrefix} ≠ ${accountPrefix}) with no dedicated agent.` +
+            ` If "${routeName}" is on another VPS, remove this entry — external names don't need routing here.`
+          );
         }
-        // Warn about entries that reference agents not in the config
-        const agentList = (ctx.cfg as any)?.agents?.list as Array<{ id: string }> | undefined;
-        if (agentList && routeName !== "_default" && entry.agent !== "main") {
-          const knownAgents = agentList.map((a) => a.id);
-          if (!knownAgents.includes(entry.agent)) {
-            ctx.log?.warn(
-              `[ClawTell] ⚠️  Routing entry "${routeName}" references unknown agent "${entry.agent}". ` +
-              `Known agents: ${knownAgents.join(", ")}. Messages to "${routeName}" will be ` +
-              `dispatched to agent "${entry.agent}" which may not exist.`
-            );
-          }
+
+        // ② Routing entry without an apiKey that isn't the primary name
+        //    Harmless for inbound (uses account key for replies), but means replies will
+        //    appear to come from the primary name, not this name — likely a misconfiguration.
+        if (!entry.apiKey && !isAccountPrimary) {
+          ctx.log?.warn(
+            `[ClawTell] ⚠️  Routing entry "${routeName}" has no apiKey — replies will be sent` +
+            ` using the account-level key and appear as tell/${account.tellName ?? "primary"}.` +
+            ` Add an apiKey to send as tell/${routeName}.`
+          );
+        }
+
+        // ③ Unknown agent referenced
+        if (knownAgentIds.length > 0 && entry.agent && entry.agent !== "main" && !knownAgentIds.includes(entry.agent)) {
+          ctx.log?.warn(
+            `[ClawTell] ⚠️  Routing entry "${routeName}" references unknown agent "${entry.agent}".` +
+            ` Known agents: ${knownAgentIds.join(", ")}. Messages may not be delivered.`
+          );
+        }
+
+        // Track names that have their own SSE connection (per-route apiKey = own account = own stream)
+        if (entry.apiKey && !receivableNames.includes(routeName)) {
+          receivableNames.push(routeName);
         }
       }
+
+      // ④ pollAccount needed but not set — extra names in routing table won't get messages
+      const namedRoutes = Object.keys(account.routing).filter(k => k !== "_default");
+      if (namedRoutes.length > 1 && !account.pollAccount) {
+        const unpolled = namedRoutes.filter(n => n !== account.tellName && !account.routing[n]?.apiKey);
+        if (unpolled.length > 0) {
+          ctx.log?.warn(
+            `[ClawTell] ⚠️  Routing entries exist for [${unpolled.join(", ")}] but pollAccount is false` +
+            ` and they have no per-route apiKey. Messages to these names will NOT be received.` +
+            ` Set pollAccount: true or add an apiKey to each route.`
+          );
+        }
+      }
+
+      // ✅ Info: log which names this gateway is actively receiving messages for
+      ctx.log?.info(
+        `[ClawTell] Receiving messages for: ${receivableNames.length > 0 ? receivableNames.map(n => `tell/${n}`).join(", ") : "(none configured)"}` +
+        (account.pollAccount ? " (+ all names on account via pollAccount)" : "")
+      );
       
       // Write health sentinel so operators can verify the plugin started
       writeHealthSentinel({

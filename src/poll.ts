@@ -688,14 +688,17 @@ async function dispatchToAgent(
             const senderRoute = resolveRoute(params.senderName, opts.account);
             const senderAgentName = senderRoute?.agent || "main";
             
-            // Check if sender is actually local to this VPS:
-            // - Has an apiKey in routing (we own this name), OR
-            // - Is the account's primary tellName, OR
-            // - Is the _default route (fallback for account names)
-            const isLocalName = 
-              senderRoute?.apiKey ||  // Has explicit apiKey = we own it
-              params.senderName === opts.account.tellName ||  // Is our primary name
-              params.senderName === "_default";  // Is default route
+            // A sender is "local" if this VPS owns and handles that name:
+            // - Has an explicit apiKey in routing (Scenario 2: we own this name's account), OR
+            // - Is the account's primary tellName (Scenario 1: our single name), OR
+            // - Shares the same account prefix as the primary key (same account, pollAccount names)
+            const accountPrefix = opts.account.apiKey?.split("_")[1] ?? null;
+            const senderKeyPrefix = senderRoute?.apiKey?.split("_")[1] ?? null;
+            const sameAccountPrefix = accountPrefix && senderKeyPrefix && accountPrefix === senderKeyPrefix;
+            const isLocalName =
+              senderRoute?.apiKey ||                              // Scenario 2: explicit per-route key
+              params.senderName === opts.account.tellName ||      // Scenario 1: primary name
+              (opts.account.pollAccount && sameAccountPrefix);     // pollAccount: same-account name
             
             // Only forward if sender is local AND not the same agent (avoid duplicate)
             if (isLocalName && senderAgentName !== params.agentName) {
