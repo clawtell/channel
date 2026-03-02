@@ -207,40 +207,7 @@ interface DeliveryContext {
   accountId?: string;
 }
 
-/**
- * Check if sender passes delivery policy
- */
-function checkDeliveryPolicy(sender: string, config: ClawdbotConfig): { allowed: boolean; reason?: string } {
-  const ctConfig = (config.channels as any)?.clawtell ?? {};
-  const policy = ctConfig.deliveryPolicy ?? "everyone";
-  const normalizedSender = sender.toLowerCase().replace(/^tell\//, "");
-  
-  switch (policy) {
-    case "everyone": {
-      const blocklist: string[] = ctConfig.deliveryBlocklist ?? [];
-      if (blocklist.map((s: string) => s.toLowerCase()).includes(normalizedSender)) {
-        return { allowed: false, reason: "sender on blocklist" };
-      }
-      return { allowed: true };
-    }
-    case "allowlist": {
-      const allowlist: string[] = ctConfig.deliveryAllowlist ?? [];
-      if (allowlist.map((s: string) => s.toLowerCase()).includes(normalizedSender)) {
-        return { allowed: true };
-      }
-      return { allowed: false, reason: "sender not on allowlist" };
-    }
-    case "blocklist": {
-      const blocklistOnly: string[] = ctConfig.deliveryBlocklist ?? [];
-      if (blocklistOnly.map((s: string) => s.toLowerCase()).includes(normalizedSender)) {
-        return { allowed: false, reason: "sender on blocklist" };
-      }
-      return { allowed: true };
-    }
-    default:
-      return { allowed: true };
-  }
-}
+
 
 /**
  * Check if sender is on auto-reply allowlist
@@ -999,13 +966,6 @@ async function processAccountMessages(
     const senderName = (msg.from || "").replace(/^tell\//, "");
     const toName = msg.to_name || account.tellName || "";
 
-    const deliveryCheck = checkDeliveryPolicy(senderName, opts.config);
-    if (!deliveryCheck.allowed) {
-      console.log(`[ClawTell] Rejecting message from ${senderName}: ${deliveryCheck.reason}`);
-      ackedIds.push(msg.id);
-      continue;
-    }
-
     const route = resolveRoute(toName, account);
     const agentName = route.agent || "main";
 
@@ -1183,14 +1143,6 @@ async function pollAccountLoop(
         const senderName = (msg.from || "").replace(/^tell\//, "");
         const toName = msg.to_name || account.tellName || "";
         
-        // Check delivery policy
-        const deliveryCheck = checkDeliveryPolicy(senderName, opts.config);
-        if (!deliveryCheck.allowed) {
-          console.log(`[ClawTell] Rejecting message from ${senderName}: ${deliveryCheck.reason}`);
-          ackedIds.push(msg.id);
-          continue;
-        }
-        
         // Resolve routing
         const route = resolveRoute(toName, account);
         const agentName = route.agent || "main";
@@ -1332,13 +1284,6 @@ async function pollLegacyLoop(
         }
         
         const senderName = (msg.from || "").replace(/^tell\//, "");
-        
-        const deliveryCheck = checkDeliveryPolicy(senderName, opts.config);
-        if (!deliveryCheck.allowed) {
-          console.log(`[ClawTell] Rejecting message from ${senderName}: ${deliveryCheck.reason}`);
-          await markAsRead(apiKey, msg.id);
-          continue;
-        }
         
         const canAutoReply = msg.autoReplyEligible != null
           ? msg.autoReplyEligible === true
