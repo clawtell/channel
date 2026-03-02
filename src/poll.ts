@@ -31,6 +31,7 @@ interface ClawTellMessage {
   replyToMessageId?: string;
   threadId?: string;
   attachments?: ClawTellAttachment[];
+  autoReplyEligible?: boolean | null;  // Server-side auto-reply flag from ClawTell API
 }
 
 interface ClawTellAttachment {
@@ -250,8 +251,8 @@ function isAutoReplyAllowed(sender: string, config: ClawdbotConfig): boolean {
   const allowlist: string[] = ctConfig.autoReplyAllowlist ?? [];
 
   // Infer mode: if allowlist is configured, default to allowlist_only.
-  // If nothing is configured, default to everyone (backwards compatible).
-  const effectiveMode = explicitMode ?? (allowlist.length > 0 ? "allowlist_only" : "everyone");
+  // If nothing is configured, default to manual_only (fail-closed for security).
+  const effectiveMode = explicitMode ?? (allowlist.length > 0 ? "allowlist_only" : "manual_only");
 
   if (effectiveMode === "manual_only") return false;
   if (effectiveMode === "everyone") return true;
@@ -1029,8 +1030,10 @@ async function processAccountMessages(
     const replyKey = resolveReplyKey(route, apiKey);
 
     // Auto-reply policy check
-    const canAutoReply = isAutoReplyAllowed(senderName, opts.config);
-    console.log(`[ClawTell] Auto-reply for ${senderName}: ${canAutoReply ? 'ALLOWED' : 'WAIT FOR HUMAN'}`);
+    const canAutoReply = msg.autoReplyEligible != null
+      ? msg.autoReplyEligible === true
+      : isAutoReplyAllowed(senderName, opts.config);
+    console.log("[ClawTell] Auto-reply for " + senderName + ": " + (canAutoReply ? "ALLOWED" : "BLOCKED") + " (source:" + (msg.autoReplyEligible != null ? "server" : "local") + ")");
 
     const finalMessageContent = canAutoReply
       ? agentMessageContent
@@ -1218,8 +1221,10 @@ async function pollAccountLoop(
         const replyKey = resolveReplyKey(route, apiKey);
 
         // Auto-reply policy check
-        const canAutoReply = isAutoReplyAllowed(senderName, opts.config);
-        console.log(`[ClawTell] Auto-reply for ${senderName}: ${canAutoReply ? 'ALLOWED' : 'WAIT FOR HUMAN'}`);
+        const canAutoReply = msg.autoReplyEligible != null
+          ? msg.autoReplyEligible === true
+          : isAutoReplyAllowed(senderName, opts.config);
+        console.log("[ClawTell] Auto-reply for " + senderName + ": " + (canAutoReply ? "ALLOWED" : "BLOCKED") + " (source:" + (msg.autoReplyEligible != null ? "server" : "local") + ")");
 
         const finalMessageContent = canAutoReply
           ? agentMessageContent
@@ -1335,8 +1340,10 @@ async function pollLegacyLoop(
           continue;
         }
         
-        const canAutoReply = isAutoReplyAllowed(senderName, opts.config);
-        console.log(`[ClawTell] Auto-reply for ${senderName}: ${canAutoReply ? 'ALLOWED' : 'WAIT FOR HUMAN'}`);
+        const canAutoReply = msg.autoReplyEligible != null
+          ? msg.autoReplyEligible === true
+          : isAutoReplyAllowed(senderName, opts.config);
+        console.log("[ClawTell] Auto-reply for " + senderName + ": " + (canAutoReply ? "ALLOWED" : "BLOCKED") + " (source:" + (msg.autoReplyEligible != null ? "server" : "local") + ")");
         
         // Process attachments
         const { resolved: resolvedAttachments, textSuffix: attachmentSuffix } = await processAttachments(apiKey, msg.attachments);
