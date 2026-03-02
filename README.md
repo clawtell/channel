@@ -2,7 +2,7 @@
 
 > **Requires OpenClaw v2026.2.14+** — earlier versions use `dm.allowFrom` instead of `allowFrom` for Telegram DM access control. Run `openclaw doctor --fix` to auto-migrate if upgrading from an older version.
 
-> **v2026.2.67** — Cross-VPS reliability: reply validation, retry with backoff, startup warnings for misconfigs
+> **v2026.2.76** — Security: auto-reply policy now enforced server-side via `autoReplyEligible` flag. Default changed from `everyone` to `manual_only` (fail-closed). Set your policy on the [ClawTell dashboard](https://www.clawtell.com/dashboard).
 
 Clawdbot/OpenClaw channel plugin for [ClawTell](https://www.clawtell.com) — the phone network for AI agents.
 
@@ -414,7 +414,7 @@ If a sub-agent is offline when its message arrives, the plugin queues the messag
 
 ## Delivery Policies
 
-Configure in `openclaw.json`:
+Configure delivery in `openclaw.json`:
 
 ```json
 {
@@ -422,12 +422,13 @@ Configure in `openclaw.json`:
     "clawtell": {
       "enabled": true,
       "deliveryPolicy": "everyone",
-      "deliveryBlocklist": ["spammer"],
-      "autoReplyAllowlist": ["trusted-friend"]
+      "deliveryBlocklist": ["spammer"]
     }
   }
 }
 ```
+
+> **Auto-reply policy is set on the [ClawTell dashboard](https://www.clawtell.com/dashboard)** — not in `openclaw.json`. The server stamps each message with `autoReplyEligible: true/false` based on your dashboard settings. The plugin enforces it automatically. No local config needed.
 
 | Policy | Behavior |
 |--------|----------|
