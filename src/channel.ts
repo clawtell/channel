@@ -20,16 +20,19 @@ import {
 import { sendClawTellMessage, sendClawTellMediaMessage, type ClawTellSendResult } from "./send.js";
 import { probeClawTell, type ClawTellProbe } from "./probe.js";
 import { pollClawTellInbox } from "./poll.js";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, readFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 
 // Health sentinel — written on successful startup so operators can verify the plugin is running
-const HEALTH_SENTINEL_PATH = join(
+const CLAWTELL_DATA_DIR = join(
   process.env.HOME || "/tmp",
   ".openclaw",
   "clawtell",
-  "health.json",
 );
+
+const HEALTH_SENTINEL_PATH = join(CLAWTELL_DATA_DIR, "health.json");
+const AGENTS_MD_VERSION_PATH = join(CLAWTELL_DATA_DIR, "agents-md-version.json");
+const AGENTS_MD_SNIPPET_PATH = join(CLAWTELL_DATA_DIR, "CLAWTELL_AGENTS.md");
 
 function writeHealthSentinel(data: Record<string, unknown>): void {
   try {
@@ -42,6 +45,81 @@ function writeHealthSentinel(data: Record<string, unknown>): void {
     }, null, 2));
   } catch {
     // Best-effort — don't crash the plugin if we can't write
+  }
+}
+
+interface AgentsMdResponse {
+  version: string;
+  updated: string;
+  outdated: boolean;
+  update_message: string | null;
+  changelog: Record<string, string>;
+  content: string;
+  download_url: string;
+}
+
+interface StoredAgentsMdVersion {
+  version: string;
+  fetchedAt: string;
+}
+
+/**
+ * Fetch the latest AGENTS.md snippet from clawtell.com on startup.
+ * Compares against stored version and logs a warning if outdated.
+ * Non-blocking — errors are logged but don't prevent startup.
+ */
+async function fetchAgentsMdOnStartup(log?: { info: (msg: string) => void; warn: (msg: string) => void }): Promise<void> {
+  try {
+    mkdirSync(CLAWTELL_DATA_DIR, { recursive: true });
+    
+    // Read stored version if it exists
+    let storedVersion: string | null = null;
+    if (existsSync(AGENTS_MD_VERSION_PATH)) {
+      try {
+        const stored: StoredAgentsMdVersion = JSON.parse(readFileSync(AGENTS_MD_VERSION_PATH, "utf-8"));
+        storedVersion = stored.version;
+      } catch {
+        // Corrupted file, ignore
+      }
+    }
+    
+    // Fetch latest from API
+    const url = storedVersion
+      ? `https://www.clawtell.com/api/agents-md?format=json&v=${storedVersion}`
+      : `https://www.clawtell.com/api/agents-md?format=json`;
+    
+    const res = await fetch(url, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(10000),
+    });
+    
+    if (!res.ok) {
+      log?.warn(`[ClawTell] Failed to fetch AGENTS.md snippet: HTTP ${res.status}`);
+      return;
+    }
+    
+    const data: AgentsMdResponse = await res.json();
+    
+    // Check if there's an update
+    if (data.outdated && data.update_message) {
+      log?.warn(`[ClawTell] ${data.update_message}`);
+    }
+    
+    // Write the snippet and version info
+    writeFileSync(AGENTS_MD_SNIPPET_PATH, data.content);
+    writeFileSync(AGENTS_MD_VERSION_PATH, JSON.stringify({
+      version: data.version,
+      fetchedAt: new Date().toISOString(),
+    } satisfies StoredAgentsMdVersion, null, 2));
+    
+    if (!storedVersion) {
+      log?.info(`[ClawTell] Downloaded AGENTS.md snippet v${data.version} → ${AGENTS_MD_SNIPPET_PATH}`);
+    } else if (storedVersion !== data.version) {
+      log?.info(`[ClawTell] Updated AGENTS.md snippet v${storedVersion} → v${data.version}`);
+    }
+  } catch (err) {
+    // Non-fatal — just log and continue
+    log?.warn(`[ClawTell] Could not fetch AGENTS.md snippet: ${err instanceof Error ? err.message : "unknown error"}`);
   }
 }
 
@@ -509,6 +587,10 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
       });
       
       ctx.log?.info(`[${account.accountId}] starting ClawTell (name=${account.tellName}, poll=${account.pollIntervalMs}ms)`);
+
+      // ── Fetch latest AGENTS.md snippet (non-blocking) ──────────────────────
+      // Don't await — this runs in background so it doesn't slow startup
+      fetchAgentsMdOnStartup(ctx.log).catch(() => {/* logged internally */});
 
       // ── Startup validation ──────────────────────────────────────────────────
       // Validate routing entries and surface likely misconfigurations.
