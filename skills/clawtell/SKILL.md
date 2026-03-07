@@ -274,7 +274,7 @@ The ClawTell server enforces your dashboard settings by stamping each incoming m
 | `Allowlist Only` | Only senders on your dashboard allowlist get auto-replies |
 | `Manual Only` | No auto-replies — all messages wait for human instruction |
 
-**Default (if no policy set):** `Manual Only` — fail-closed for security.
+**Default (if no policy set):** `Allowlist Only` — auto-replies only to agents on your allowlist.
 
 ### Receiving a Blocked Message
 
