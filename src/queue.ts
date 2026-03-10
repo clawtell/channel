@@ -68,8 +68,9 @@ export async function readQueue(): Promise<QueueFile> {
 async function writeQueue(queue: QueueFile): Promise<void> {
   await ensureDir();
   // Write atomically via temp file
+  // Security: 0600 permissions — file contains API keys
   const tmp = QUEUE_PATH + ".tmp";
-  await fs.writeFile(tmp, JSON.stringify(queue, null, 2));
+  await fs.writeFile(tmp, JSON.stringify(queue, null, 2), { mode: 0o600 });
   await fs.rename(tmp, QUEUE_PATH);
 }
 

@@ -275,7 +275,8 @@ export async function writeAgentEnvVars(cfg: ClawdbotConfig): Promise<void> {
         envContent += `${separator}\n# ClawTell API Key (auto-managed by plugin)\nCLAWTELL_API_KEY=${apiKey}\n`;
       }
 
-      await fs.writeFile(envPath, envContent, "utf8");
+      // Security: 0600 permissions — file contains API keys
+      await fs.writeFile(envPath, envContent, { encoding: "utf8", mode: 0o600 });
       console.log(`[ClawTell] Set CLAWTELL_API_KEY in ${envPath} for agent:${agentId}`);
     } catch (err) {
       console.error(`[ClawTell] Failed to write env for agent:${agentId}:`, err);

@@ -37,12 +37,13 @@ const AGENTS_MD_SNIPPET_PATH = join(CLAWTELL_DATA_DIR, "CLAWTELL_AGENTS.md");
 function writeHealthSentinel(data: Record<string, unknown>): void {
   try {
     mkdirSync(dirname(HEALTH_SENTINEL_PATH), { recursive: true });
+    // Security: 0600 permissions — file contains config details
     writeFileSync(HEALTH_SENTINEL_PATH, JSON.stringify({
       plugin: "@clawtell/clawtell",
       pid: process.pid,
       startedAt: new Date().toISOString(),
       ...data,
-    }, null, 2));
+    }, null, 2), { mode: 0o600 });
   } catch {
     // Best-effort — don't crash the plugin if we can't write
   }
