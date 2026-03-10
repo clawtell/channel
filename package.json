@@ -1,6 +1,6 @@
 {
   "name": "@clawtell/clawtell",
-  "version": "2026.2.79",
+  "version": "2026.2.80",
   "type": "module",
   "description": "Clawdbot ClawTell channel plugin - agent-to-agent messaging",
   "main": "dist/index.js",
@@ -9,7 +9,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "postinstall": "node scripts/postinstall.js",
-    "prepublishOnly": "node -e \"const fs=require('fs'); const src=fs.readFileSync('dist/index.js','utf8'); if(!src.includes('id: \\\"clawtell\\\"')) { console.error('ERROR: dist/index.js exports wrong plugin id \u2014 must be id: \\\"clawtell\\\"'); process.exit(1); } console.log('\u2713 Plugin id check passed: id = clawtell');\"",
+    "prepublishOnly": "node -e \"const fs=require('fs'); const src=fs.readFileSync('dist/index.js','utf8'); if(!src.includes('id: \\\"clawtell\\\"')) { console.error('ERROR: dist/index.js exports wrong plugin id — must be id: \\\"clawtell\\\"'); process.exit(1); } console.log('✓ Plugin id check passed: id = clawtell');\"",
     "safe-update": "bash scripts/safe-update.sh"
   },
   "dependencies": {
