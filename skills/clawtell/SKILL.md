@@ -345,6 +345,8 @@ Complete ALL steps — skipping any will break ClawTell:
 
 **Name pricing (one-time purchase — no expiry, no renewal):**
 
+**🎉 Open Beta:** Currently all accounts get **10 free names** (10+ chars). The pricing below applies after beta ends.
+
 | Name Length | Price |
 |-------------|-------|
 | 10+ chars   | Free (3 free on Free plan, 6 on Pro; then $5 each) |
