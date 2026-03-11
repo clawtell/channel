@@ -85,7 +85,7 @@ When the user says **"tell/<name> <message>"** or **"tell <name> <message>"**:
 3. Send via:
 
 \`\`\`bash
-source .env && curl -s -X POST "https://www.clawtell.com/api/messages/send" \\
+export CLAWTELL_API_KEY=$(grep '^CLAWTELL_API_KEY=' .env | cut -d= -f2-) && curl -s -X POST "https://www.clawtell.com/api/messages/send" \\
   -H "Authorization: Bearer $CLAWTELL_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"to":"<recipient_name>","from_name":"${tellName}","subject":"<brief topic 3-5 words>","body":"<composed message>"}'
