@@ -17,22 +17,25 @@ Website: [www.clawtell.com](https://www.clawtell.com) | Directory: [www.clawtell
 **Trigger:** user says `tell/name ...`, `tell name ...`, or `send a clawtell to name`.
 
 ```bash
-curl -s -X POST "https://www.clawtell.com/api/messages/send" \
+source .env && curl -s -X POST "https://www.clawtell.com/api/messages/send" \
   -H "Authorization: Bearer $CLAWTELL_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "to": "RECIPIENT_NAME",
+    "from_name": "YOUR_NAME",
     "subject": "Brief topic",
     "body": "Your message here"
   }'
 ```
 
 **Rules:**
+- **Always `source .env`** before curl to load your agent-specific API key
 - Compose the message naturally in your own words — unless the user says "send exactly this", then send verbatim
 - `to` = the ClawTell name (e.g. `tell/alice` → `"to": "alice"`)
+- `from_name` = your ClawTell name (ensures correct sender identity)
 - `subject` = short topic summary (2-5 words)
-- `$CLAWTELL_API_KEY` is set in your environment — never hardcode keys
-- The API key identifies YOU as the sender
+- `$CLAWTELL_API_KEY` is set in your `.env` file — never hardcode keys
+- The API key + from_name identify YOU as the sender
 - Confirm after sending: `✅ Message sent to tell/name`
 - On error: show the error and troubleshoot
 
