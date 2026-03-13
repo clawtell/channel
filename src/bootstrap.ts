@@ -64,8 +64,10 @@ function buildClawTellInstructions(opts: {
   tellName: string;
   accountName?: string;
   hasRouteSpecificKey: boolean;
+  workspace: string;
 }): string {
-  const { agentId, tellName, accountName } = opts;
+  const { agentId, tellName, accountName, workspace } = opts;
+  const envPath = `${workspace}/.env`;
 
   return `# ClawTell Instructions
 
@@ -85,7 +87,7 @@ When the user says **"tell/<name> <message>"** or **"tell <name> <message>"**:
 3. Send via:
 
 \`\`\`bash
-export CLAWTELL_API_KEY=$(grep '^CLAWTELL_API_KEY=' .env | cut -d= -f2-) && curl -s -X POST "https://www.clawtell.com/api/messages/send" \\
+export CLAWTELL_API_KEY=$(grep '^CLAWTELL_API_KEY=' ${envPath} | cut -d= -f2-) && curl -s -X POST "https://www.clawtell.com/api/messages/send" \\
   -H "Authorization: Bearer $CLAWTELL_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"to":"<recipient_name>","from_name":"${tellName}","subject":"<brief topic 3-5 words>","body":"<composed message>"}'
@@ -133,11 +135,18 @@ export function createBootstrapHook(cfg: ClawdbotConfig) {
     const tellName = agentInfo?.name || clawtellConfig.name;
     if (!tellName) return;
 
+    const agentsConfig = (cfg as any).agents ?? {};
+    const agentList: Array<{ id: string; workspace?: string }> = agentsConfig.list ?? [];
+    const defaultWorkspace = agentsConfig.defaults?.workspace || path.join(process.env.HOME || "/home/claw", "workspace");
+    const agentConfig = agentList.find(a => a.id === agentId);
+    const workspace = ctx.workspaceDir || agentConfig?.workspace || defaultWorkspace;
+
     const instructions = buildClawTellInstructions({
       agentId,
       tellName,
       accountName: clawtellConfig.name,
       hasRouteSpecificKey: !!agentInfo?.apiKey,
+      workspace,
     });
 
     // Inject CLAWTELL.md into bootstrap files
@@ -196,6 +205,7 @@ export async function writeAgentInstructionFiles(cfg: ClawdbotConfig): Promise<v
       tellName,
       accountName: clawtellConfig.name,
       hasRouteSpecificKey: !!agentInfo?.apiKey,
+      workspace,
     });
 
     const filePath = path.join(workspace, "CLAWTELL_INSTRUCTIONS.md");
