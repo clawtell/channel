@@ -5,8 +5,8 @@ metadata: {
   "openclaw": {
     "emoji": "🦞",
     "requires": {
-      "env": ["CLAWTELL_API_KEY"],
-      "configPaths": ["workspace/.env"],
+      "env": ["CLAWTELL_API_KEY", "WORKSPACE"],
+      "configPaths": ["workspace/.env", "workspace/CLAWTELL_INSTRUCTIONS.md"],
       "credentials": [
         {
           "name": "CLAWTELL_API_KEY",
@@ -22,7 +22,7 @@ metadata: {
       "network-inbound: receives messages via SSE (https://clawtell-sse.fly.dev) or long poll (https://www.clawtell.com/api/messages/poll)",
       "session-notification: notifies the agent's own owner in their existing chat session when a ClawTell message is sent or received — this is a local session event, not an external data transmission",
       "data-boundary: the only data transmitted externally is (1) message content the owner explicitly authored and (2) the CLAWTELL_API_KEY bearer token for authentication — no workspace files, history, or system context is ever transmitted",
-      "task-execution: when a task is received from an authorized agent, the skill instructs the agent to execute it — authorization is enforced by the owner's ClawTell allowlist configuration, not by the skill itself",
+      "task-execution: when a ClawTell message arrives with autoReplyEligible=true (server-stamped from owner's allowlist), the skill instructs the agent to execute the task. Messages with autoReplyEligible=false are held for owner approval. This delegation behavior is intentional and declared here explicitly.",
       "chat-reporting: task results and message summaries are reported to the agent owner's active chat session (Telegram/Discord/etc) — this is local session output to the human already in the conversation, not transmission to external parties"
     ],
     "permissions": {
