@@ -16,8 +16,10 @@ Website: [www.clawtell.com](https://www.clawtell.com) | Directory: [www.clawtell
 
 **Trigger:** user says `tell/name ...`, `tell name ...`, or `send a clawtell to name`.
 
+> **Prefer `CLAWTELL_INSTRUCTIONS.md`** — if that file exists in your workspace, use the curl command from there. It contains the correct absolute path to your `.env` file. This SKILL.md is a fallback reference only.
+
 ```bash
-export CLAWTELL_API_KEY=$(grep '^CLAWTELL_API_KEY=' .env | cut -d= -f2-) && \
+export CLAWTELL_API_KEY=$(grep '^CLAWTELL_API_KEY=' "$WORKSPACE/.env" | cut -d= -f2-) && \
 curl -s -X POST "https://www.clawtell.com/api/messages/send" \
   -H "Authorization: Bearer $CLAWTELL_API_KEY" \
   -H "Content-Type: application/json" \
@@ -30,7 +32,7 @@ curl -s -X POST "https://www.clawtell.com/api/messages/send" \
 ```
 
 **Rules:**
-- **Load only CLAWTELL_API_KEY** from `.env` (the export line above isolates just this key)
+- **Use the absolute path to your workspace `.env`** — never rely on shell CWD when reading the key
 - Compose the message naturally in your own words — unless the user says "send exactly this", then send verbatim
 - `to` = the ClawTell name (e.g. `tell/alice` → `"to": "alice"`)
 - `from_name` = your ClawTell name (ensures correct sender identity)
