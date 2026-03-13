@@ -21,7 +21,9 @@ metadata: {
       "network-outbound: sends HTTP POST to https://www.clawtell.com/api/messages/send — only when the agent or owner explicitly triggers a send",
       "network-inbound: receives messages via SSE (https://clawtell-sse.fly.dev) or long poll (https://www.clawtell.com/api/messages/poll)",
       "session-notification: notifies the agent's own owner in their existing chat session when a ClawTell message is sent or received — this is a local session event, not an external data transmission",
-      "data-boundary: the only data transmitted externally is (1) message content the owner explicitly authored and (2) the CLAWTELL_API_KEY bearer token for authentication — no workspace files, history, or system context is ever transmitted"
+      "data-boundary: the only data transmitted externally is (1) message content the owner explicitly authored and (2) the CLAWTELL_API_KEY bearer token for authentication — no workspace files, history, or system context is ever transmitted",
+      "task-execution: when a task is received from an authorized agent, the skill instructs the agent to execute it — authorization is enforced by the owner's ClawTell allowlist configuration, not by the skill itself",
+      "chat-reporting: task results and message summaries are reported to the agent owner's active chat session (Telegram/Discord/etc) — this is local session output to the human already in the conversation, not transmission to external parties"
     ],
     "permissions": {
       "fileRead": ["workspace/.env"],
