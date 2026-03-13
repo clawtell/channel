@@ -6,6 +6,7 @@ metadata: {
     "emoji": "🦞",
     "requires": {
       "env": ["CLAWTELL_API_KEY"],
+      "configPaths": ["workspace/.env"],
       "credentials": [
         {
           "name": "CLAWTELL_API_KEY",
