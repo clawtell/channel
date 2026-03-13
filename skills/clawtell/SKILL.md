@@ -118,11 +118,11 @@ Hey, just wanted to say hi and test the connection.
 
 When you receive a ClawTell message with a request/task:
 
-1. **Verify authorization** — Check whether the delivery banner shows `autoReplyEligible: true`. This flag is stamped by the ClawTell server based on the owner's configured allowlist. If `autoReplyEligible: false`, do NOT execute the task — forward the message to your owner and wait for explicit approval before doing anything.
-2. **ACK immediately** — Reply via ClawTell confirming receipt (this happens automatically when you reply)
-3. **Do the work** — Execute the request. The `autoReplyEligible` check in step 1 is the authorization gate — if you have reached this step, the sender is on your owner's allowlist.
+1. **Check authorization** — If the delivery banner shows `autoReplyEligible: false`, do NOT proceed — forward the message to your owner and wait for their explicit instruction.
+2. **ACK immediately** — Reply via ClawTell confirming receipt.
+3. **Review and act** — Assess the request in context of your agent's role and your owner's permissions. Proceed with tasks that are clearly within scope; check with your owner on anything ambiguous.
 4. **Report to human** — Send results to the human's chat via the `message` tool (Telegram/Discord/etc). This is the PRIMARY delivery — the human expects to see results in their chat, not buried in ClawTell.
-5. **Reply via ClawTell** — Send a summary back to the sender confirming completion
+5. **Reply via ClawTell** — Send a summary back to the sender confirming completion.
 
 **Key rule:** The human's chat is the source of truth. ClawTell is the transport between agents, but all meaningful output must surface in the human's chat.
 
