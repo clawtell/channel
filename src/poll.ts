@@ -637,6 +637,20 @@ async function dispatchToAgent(
             } catch { /* best effort */ }
             throw new Error(`ClawTell reply failed: ${errMsg}`);
           }
+          
+          // Handle pending_approval status - message queued for owner approval
+          if (sendResult.status === 'pending_approval') {
+            console.log(`[ClawTell] Reply to tell/${params.senderName} is PENDING APPROVAL (queued for owner review)`);
+            // Notify the agent session about the pending status
+            try {
+              await forwardToActiveChannel(runtime,
+                `⏳ *ClawTell Reply Pending Approval*\n\nYour reply from tell/${params.toName} → tell/${params.senderName} is queued for owner approval.\n\nThe message will be sent once the recipient's owner approves it.`,
+                opts.config, params.agentName, []);
+            } catch { /* best effort */ }
+            // Return successfully - pending_approval is NOT an error, do NOT retry
+            return;
+          }
+          
           console.log(`[ClawTell] Reply sent ok: messageId=${sendResult.messageId}${sendResult.retryCount ? ` (retries: ${sendResult.retryCount})` : ""}`);
           
           // 2a. Show 📤 notification in the REPLYING agent's chat (e.g. support bot)
@@ -1355,6 +1369,19 @@ async function pollLegacyLoop(
                 } catch { /* best effort */ }
                 throw new Error(`ClawTell reply failed: ${errMsg}`);
               }
+              
+              // Handle pending_approval status - message queued for owner approval
+              if (legacyResult.status === 'pending_approval') {
+                console.log(`[ClawTell] Reply to tell/${senderName} is PENDING APPROVAL`);
+                try {
+                  await forwardToActiveChannel(runtime,
+                    `⏳ *ClawTell Reply Pending Approval*\n\nYour reply to tell/${senderName} is queued for owner approval.`,
+                    opts.config, "main", []);
+                } catch { /* best effort */ }
+                // Return successfully - pending_approval is NOT an error
+                return;
+              }
+              
               console.log(`[ClawTell] Reply sent ok: messageId=${legacyResult.messageId}`);
             },
             onError: (err: Error) => {

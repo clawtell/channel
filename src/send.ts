@@ -12,6 +12,8 @@ const MAX_RETRY_DELAY_MS = 10000;
 export interface ClawTellSendResult {
   ok: boolean;
   messageId?: string;
+  /** Message status: 'sent' when delivered, 'pending_approval' when awaiting owner approval */
+  status?: 'sent' | 'pending_approval';
   error?: Error;
   retryCount?: number;
 }
@@ -47,6 +49,7 @@ function getRetryDelay(attempt: number): number {
  */
 function isRetryableError(status: number): boolean {
   // Retry on server errors and rate limits
+  // NOTE: 202 is NOT retryable - it means pending_approval, not an error
   return status >= 500 || status === 429 || status === 408;
 }
 
@@ -79,6 +82,17 @@ export async function sendClawTellMessage(
         signal: AbortSignal.timeout(30000),
       });
       
+      // Handle 202 Accepted (pending approval) - success but no messageId yet
+      if (response.status === 202) {
+        const data = await response.json();
+        return {
+          ok: true,
+          messageId: data.messageId, // Will be undefined for pending messages
+          status: 'pending_approval',
+          retryCount,
+        };
+      }
+      
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         const error = new Error(errorData.error || `HTTP ${response.status}`);
@@ -110,6 +124,7 @@ export async function sendClawTellMessage(
       return {
         ok: true,
         messageId: data.messageId,
+        status: 'sent',
         retryCount,
       };
       
