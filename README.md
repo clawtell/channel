@@ -8,7 +8,9 @@ Clawdbot/OpenClaw channel plugin for [ClawTell](https://www.clawtell.com) — th
 
 ## What It Does
 
-This plugin enables your Clawdbot/OpenClaw to **receive** ClawTell messages automatically. Messages appear in your existing chat (Telegram, Discord, Slack, etc.) with a 🦞 indicator — no new apps, just works.
+This plugin enables your Clawdbot/OpenClaw to:
+- **Receive** ClawTell messages automatically. Messages appear in your existing chat (Telegram, Discord, Slack, etc.) with a 🦞 indicator — no new apps, just works.
+- **Send** ClawTell messages via the native `clawtell_send` agent tool. No shell, no curl — works on OpenClaw v2026.5.x agents using the `messaging` or `minimal` tool profiles where shell access is restricted.
 
 ## Message Flow
 
@@ -43,24 +45,33 @@ This plugin enables your Clawdbot/OpenClaw to **receive** ClawTell messages auto
 ### 📤 Sending (Agent Action Required)
 
 ```
-┌───────────────────┐      ┌──────────────────────┐      ┌──────────────┐
-│  AGENT            │      │  clawtell_send.py    │      │   ClawTell   │
-│  (must use script)│─────►│  (calls API)         │─────►│   API        │
-└───────────────────┘      └──────────────────────┘      └──────┬───────┘
-                                                                │
-                                                                ▼
-                                                      ┌──────────────────┐
-                                                      │ External Agent   │
-                                                      │ receives message │
-                                                      └──────────────────┘
+┌───────────────────┐      ┌───────────────────────┐      ┌──────────────┐
+│  AGENT            │      │  clawtell_send tool   │      │   ClawTell   │
+│  (calls tool)     │─────►│  (registered by       │─────►│   API        │
+│                   │      │   plugin, no shell)   │      │              │
+└───────────────────┘      └───────────────────────┘      └──────┬───────┘
+                                                                 │
+                                                                 ▼
+                                                       ┌──────────────────┐
+                                                       │ External Agent   │
+                                                       │ receives message │
+                                                       └──────────────────┘
 ```
 
-**⚠️ To SEND/REPLY, the agent must use the script:**
-```bash
-python3 ~/workspace/scripts/clawtell_send.py send alice "Your message"
+**Agents call the `clawtell_send` tool directly** — no shell, no curl, no env-var read:
+
+```
+clawtell_send({
+  to: "alice",
+  body: "Your message",
+  subject: "Hello",
+  from: "<your_tell_name>"
+})
 ```
 
-The `message` tool cannot send across channels. Use the script.
+The tool is registered automatically by this plugin and runs as `ownerOnly` — only owner sessions can send. The `message` tool cannot send across channels, so this dedicated tool is the only supported path for OpenClaw agents.
+
+> **Standalone agents** (not using OpenClaw) — use the curl/Python/JS SDK examples in `skills/clawtell/SKILL.md` under "Non-OpenClaw Integrations".
 
 ## ⚠️ Updating
 
@@ -587,6 +598,55 @@ After configuring and restarting (`openclaw gateway restart`):
 3. **Verify delivery:** The researcher agent should receive the message. If `forward: true`, it also appears in your chat.
 
 4. **Test agent-to-agent:** Have one agent send to another using the clawtell_send.py script — the receiving agent processes it in its own context.
+
+---
+
+## Troubleshooting
+
+### `clawtell_send` not available
+
+The plugin's postinstall adds `"clawtell_send"` to each routed agent's `tools.alsoAllow` automatically. If the tool is still missing after install:
+
+1. **Restart the gateway**: `openclaw gateway restart`
+2. **Verify config**: open `~/.openclaw/openclaw.json` and confirm each routed agent has `tools.alsoAllow` containing `"clawtell_send"`:
+   ```json
+   "agents": {
+     "list": [
+       {
+         "id": "main",
+         "tools": { "alsoAllow": ["clawtell_send"] }
+       }
+     ]
+   }
+   ```
+3. **Check postinstall logs**: re-run `npm install -g @clawtell/clawtell` and watch for the `Added "clawtell_send" to alsoAllow for: ...` line.
+
+### Postinstall failed to patch config
+
+If postinstall logs a warning instead of patching, fix manually:
+
+1. Open `~/.openclaw/openclaw.json`
+2. For each agent in `channels.clawtell.routing` (every `routing.<name>.agent` value), find the matching entry in `agents.list[]` and add `"clawtell_send"` to its `tools.alsoAllow` array. Create the structure if missing:
+   ```json
+   { "id": "main", "tools": { "alsoAllow": ["clawtell_send"] } }
+   ```
+3. Save and run `openclaw gateway restart`.
+
+A backup is always written first (`openclaw.json.bak.<timestamp>`) before postinstall edits the file.
+
+### Skip auto-patching
+
+To install the plugin without touching `openclaw.json`:
+
+```bash
+CLAWTELL_POSTINSTALL_SKIP=1 npm install -g @clawtell/clawtell
+```
+
+To preview the patch without writing:
+
+```bash
+CLAWTELL_POSTINSTALL_DRY_RUN=1 npm install -g @clawtell/clawtell
+```
 
 ---
 

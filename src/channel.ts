@@ -20,6 +20,7 @@ import {
 import { sendClawTellMessage, sendClawTellMediaMessage, type ClawTellSendResult } from "./send.js";
 import { probeClawTell, type ClawTellProbe } from "./probe.js";
 import { pollClawTellInbox } from "./poll.js";
+import { createClawTellSendTool } from "./agent-tools-send.js";
 import { writeFileSync, readFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 
@@ -198,7 +199,7 @@ function getChannelConfig(cfg: ClawdbotConfig): ClawTellChannelConfig | undefine
   return cfg.channels?.clawtell as ClawTellChannelConfig | undefined;
 }
 
-function resolveClawTellAccount(opts: {
+export function resolveClawTellAccount(opts: {
   cfg: ClawdbotConfig;
   accountId?: string;
 }): ResolvedClawTellAccount {
@@ -298,52 +299,53 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
       hasRepliedRef,
     }),
   },
+  agentTools: ({ cfg }) => [createClawTellSendTool({ cfg: cfg as ClawdbotConfig })],
   agentPrompt: {
     messageToolHints: ({ cfg }: { cfg: any; accountId?: string }) => {
       const clawtellConfig = cfg?.channels?.clawtell;
       if (!clawtellConfig?.enabled) return [];
       const tellName = clawtellConfig?.name || '';
       const routing = clawtellConfig?.routing as Record<string, any> | undefined;
-      const accountApiKey = clawtellConfig?.apiKey || '';
-      
-      // Build per-agent key table from routing entries
-      const agentKeyLines: string[] = [];
+
+      // Build per-agent identity table — keys are no longer shown; the
+      // tool selects per-route apiKey from cfg automatically based on `from`.
+      const agentIdentityLines: string[] = [];
       if (routing) {
         for (const [name, entry] of Object.entries(routing)) {
           if (name === '_default' || !entry) continue;
-          const key = entry.apiKey || accountApiKey;
           const agentId = entry.agent || 'main';
-          if (key) {
-            agentKeyLines.push(`  - Agent **${agentId}** sends as \`tell/${name}\` using key: \`${key.slice(0, 15)}...${key.slice(-4)}\``);
-          }
+          agentIdentityLines.push(`  - Agent **${agentId}** sends as \`tell/${name}\` (pass \`from: "${name}"\`)`);
         }
       }
-      
+
       const hints = [
         '',
         '### ClawTell Sending',
         'When the user says **"tell/<name> <message>"** or **"tell <name> <message>"** (e.g. "tell/alice Hey, meeting at 3pm"):',
         '1. Extract the **recipient name** (the part after `tell/` or `tell `)',
         '2. Compose the message naturally from the user\'s intent (write as the agent speaking, don\'t just copy-paste) — unless the user says "send exactly this", in which case send verbatim',
-        '3. Send via `exec`:',
+        '3. Call the `clawtell_send` tool:',
         '```',
-        'curl -s -X POST "https://www.clawtell.com/api/messages/send" \\',
-        '  -H "Authorization: Bearer <your-clawtell-api-key>" \\',
-        '  -H "Content-Type: application/json" \\',
-        '  -d \'{"to":"<recipient_name>","subject":"<brief topic>","body":"<composed message>"}\'',
+        'clawtell_send({',
+        '  to: "<recipient_name>",',
+        '  body: "<composed message>",',
+        '  subject: "<brief 3-5 word topic>",',
+        `  from: "${tellName || '<your_tell_name>'}"`,
+        '})',
         '```',
+        '- **Never use `curl`, `python`, or any shell command to send** — the `clawtell_send` tool handles the API call.',
       ];
-      
-      if (agentKeyLines.length > 0) {
-        hints.push('- **API key per agent** (use YOUR agent\'s key so the message shows the correct sender):');
-        hints.push(...agentKeyLines);
-      } else if (accountApiKey) {
-        hints.push(`- **API key**: \`${accountApiKey.slice(0, 15)}...${accountApiKey.slice(-4)}\`${tellName ? ` — your ClawTell name is \`${tellName}\`` : ''}`);
+
+      if (agentIdentityLines.length > 0) {
+        hints.push('- **Identity per agent** (always pass `from:` so the recipient sees the correct sender):');
+        hints.push(...agentIdentityLines);
+      } else if (tellName) {
+        hints.push(`- **Your ClawTell name** is \`tell/${tellName}\` — pass \`from: "${tellName}"\` in the tool call.`);
       }
-      
-      hints.push('- **After sending**, confirm: ✅ Message sent to tell/<name>');
+
+      hints.push('- **After sending**, confirm in chat: `✓ Sent to tell/<name>` (the tool returns this narration).');
       hints.push('- **If it fails**, show the error and troubleshoot.');
-      
+
       return hints;
     },
   },
