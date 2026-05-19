@@ -15,15 +15,20 @@
  * as the correct identity). Otherwise falls back to the account-level key.
  */
 
-import type { ChannelAgentTool } from "openclaw/plugin-sdk/channel-contract";
 import type { ClawdbotConfig } from "openclaw/plugin-sdk";
 import { Type } from "typebox";
 import { sendClawTellMessage } from "./send.js";
 import { resolveClawTellAccount } from "./channel.js";
 
+// Return type is inferred from the object literal so TypeScript can match
+// it against openclaw's `ChannelAgentTool` structurally. The dedicated
+// `openclaw/plugin-sdk/channel-contract` subpath that ships
+// `ChannelAgentTool` as a named export was only added in 2026.5.x; this
+// plugin still builds against the older devDependency, and the runtime
+// gateway accepts the object structurally either way.
 export function createClawTellSendTool(params: {
   cfg?: ClawdbotConfig;
-}): ChannelAgentTool {
+}) {
   return {
     name: "clawtell_send",
     label: "ClawTell Send",
