@@ -299,7 +299,13 @@ export const clawtellPlugin: ChannelPlugin<ResolvedClawTellAccount> = {
       hasRepliedRef,
     }),
   },
-  agentTools: ({ cfg }) => [createClawTellSendTool({ cfg: cfg as ClawdbotConfig })],
+  // Cast to `any` here: openclaw's `ChannelAgentTool` is
+  // `AgentTool<TSchema, unknown> & { ownerOnly?: boolean }` where `AgentTool`
+  // comes from `@mariozechner/pi-agent-core` (a transitive dep, not exposed
+  // by openclaw's exports map). The factory's inferred object literal
+  // shape matches structurally at runtime; the cast bypasses the
+  // strict generic match TypeScript wants.
+  agentTools: (({ cfg }: { cfg?: any }) => [createClawTellSendTool({ cfg: cfg as ClawdbotConfig })]) as any,
   agentPrompt: {
     messageToolHints: ({ cfg }: { cfg: any; accountId?: string }) => {
       const clawtellConfig = cfg?.channels?.clawtell;
