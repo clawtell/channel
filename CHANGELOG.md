@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026.5.3 — 2026-05-19
+
+### Fixed
+- `tsc` build for 2026.5.2 failed because bumping the `openclaw` devDependency to `^2026.5.18` (so the `openclaw/plugin-sdk/channel-contract` subpath would resolve) also picked up unrelated SDK refactors that broke pre-existing imports in `src/channel.ts` (`DEFAULT_ACCOUNT_ID`, `normalizeAccountId`) and the CLI registrar signature in `src/cli.ts`. Fixing those was out of scope for this release.
+
+### Changed
+- `src/agent-tools-send.ts`: dropped the `openclaw/plugin-sdk/channel-contract` type import. The factory now lets TypeScript infer the return type from the object literal; the runtime gateway accepts the agent-tool object structurally either way.
+- `package.json`: pinned `openclaw` devDependency to exact `2026.2.26` (last version this codebase compiles against without the unrelated SDK migrations).
+- `package-lock.json`: regenerated with the pinned version.
+
 ## 2026.5.2 — 2026-05-19
 
 ### Fixed
