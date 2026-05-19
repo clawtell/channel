@@ -7,14 +7,16 @@
  * 1. Symlinks SKILL.md into every agent workspace
  * 2. Detects openclaw installation (any prefix, any path)
  * 3. Auto-heals corrupted openclaw installs (from npm update -g)
- * 4. Restarts the gateway if it was running
+ * 4. Patches openclaw.json: adds "clawtell_send" to each routed agent's tools.alsoAllow
+ * 5. Restarts the gateway if it was running
  */
 
-import { readFileSync, existsSync, lstatSync, mkdirSync, symlinkSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, lstatSync, mkdirSync, symlinkSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 import { execSync, spawnSync } from 'child_process';
+import JSON5 from 'json5';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILL_SOURCE = join(__dirname, '..', 'skills', 'clawtell', 'SKILL.md');
@@ -255,3 +257,111 @@ function checkDmPolicy() {
 }
 
 checkDmPolicy();
+
+// ── alsoAllow patcher ────────────────────────────────────────────────────────
+// OpenClaw v2026.5.x messaging/minimal profiles do not include exec/process
+// (PR #75055). The clawtell_send tool replaces the old shell-based send flow,
+// but it must be added to each routed agent's tools.alsoAllow to be visible.
+
+function patchAlsoAllow() {
+  const configPath = findOpenClawConfig();
+  if (!configPath) return;
+
+  if (process.env.CLAWTELL_POSTINSTALL_SKIP === '1') {
+    console.log('\n🔧 ClawTell: alsoAllow patcher\n');
+    console.log('  ℹ️  CLAWTELL_POSTINSTALL_SKIP=1 — skipping alsoAllow patcher.\n');
+    return;
+  }
+
+  let raw, config;
+  try {
+    raw = readFileSync(configPath, 'utf8');
+    config = JSON5.parse(raw);
+  } catch (err) {
+    console.log('\n🔧 ClawTell: alsoAllow patcher\n');
+    console.log(`  ⚠️  Could not parse ${configPath} for alsoAllow patch: ${err.message}`);
+    console.log(`     Skipping — add "clawtell_send" manually to each routed agent's tools.alsoAllow.\n`);
+    return;
+  }
+
+  const clawtellCfg = config?.channels?.clawtell;
+  if (!clawtellCfg?.enabled) return; // plugin not in use on this gateway
+
+  console.log('\n🔧 ClawTell: alsoAllow patcher\n');
+
+  // Collect target agent ids:
+  // - every routing.<name>.agent (excluding _default key, but including _default's agent)
+  // - if no routing, fall back to the configured default agent or "main"
+  const routing = clawtellCfg.routing ?? {};
+  const targetIds = new Set();
+  for (const [, entry] of Object.entries(routing)) {
+    if (entry?.agent) targetIds.add(entry.agent);
+  }
+  if (targetIds.size === 0) {
+    const defaultId =
+      config?.agents?.defaults?.id ??
+      config?.agents?.list?.[0]?.id ??
+      'main';
+    targetIds.add(defaultId);
+  }
+
+  const agentList = config?.agents?.list;
+  if (!Array.isArray(agentList)) {
+    // Single-agent flat config — no per-agent override path exists.
+    // The plugin's clawtell_send tool will still be available because no
+    // restrictive agents.list[].tools profile is in play.
+    console.log('  ℹ️  No agents.list in config — skipping per-agent alsoAllow patch (single-agent flat config).\n');
+    return;
+  }
+
+  const patched = [];
+  const skipped = [];
+  for (const id of targetIds) {
+    const agent = agentList.find((a) => a?.id === id);
+    if (!agent) {
+      skipped.push(id);
+      continue;
+    }
+    agent.tools = agent.tools ?? {};
+    agent.tools.alsoAllow = agent.tools.alsoAllow ?? [];
+    if (agent.tools.alsoAllow.includes('clawtell_send')) continue;
+    agent.tools.alsoAllow.push('clawtell_send');
+    patched.push(id);
+  }
+
+  if (skipped.length > 0) {
+    console.log(`  ⚠️  alsoAllow: agent id(s) not found in agents.list — ${skipped.join(', ')} (skipped)`);
+  }
+
+  if (patched.length === 0) {
+    console.log('  ✅ All routed agents already have "clawtell_send" in tools.alsoAllow.\n');
+    return;
+  }
+
+  if (process.env.CLAWTELL_POSTINSTALL_DRY_RUN === '1') {
+    console.log(`  [DRY-RUN] Would add "clawtell_send" to alsoAllow for: ${patched.join(', ')}`);
+    console.log(`     File unchanged. Re-run without CLAWTELL_POSTINSTALL_DRY_RUN=1 to apply.\n`);
+    return;
+  }
+
+  const backupPath = `${configPath}.bak.${Date.now()}`;
+  try {
+    writeFileSync(backupPath, raw, 'utf8');
+    writeFileSync(configPath, JSON5.stringify(config, null, 2), 'utf8');
+    console.log(`  ✅ Added "clawtell_send" to alsoAllow for: ${patched.join(', ')}`);
+    console.log(`     Backup: ${backupPath}\n`);
+  } catch (err) {
+    console.log(`  ⚠️  alsoAllow write failed: ${err.message}`);
+    console.log(`     Manual fix: add "clawtell_send" to agents.list[].tools.alsoAllow for: ${patched.join(', ')}\n`);
+    return;
+  }
+
+  // Restart gateway so the new alsoAllow + new plugin code take effect.
+  if (isGatewayRunning()) {
+    restartGateway(findOpenClawBin());
+  } else {
+    console.log('  ℹ️  Gateway not running — no restart needed. Start it with "openclaw gateway start" when ready.\n');
+  }
+}
+
+patchAlsoAllow();

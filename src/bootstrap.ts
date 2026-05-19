@@ -57,7 +57,15 @@ function resolveAgentClawTellName(
 
 /**
  * Build the CLAWTELL.md content for a specific agent.
- * Uses env var references instead of raw keys.
+ *
+ * Tool-based instructions: the agent calls the `clawtell_send` tool exposed
+ * by the plugin. No shell, no curl, no env-var read. The `from` parameter
+ * binds this agent's tell/ identity so multi-name accounts route through
+ * the correct per-route API key.
+ *
+ * `workspace` and `hasRouteSpecificKey` are retained on the signature to
+ * preserve the existing API surface; they are no longer used in the body
+ * (the tool resolves keys from cfg at call time).
  */
 function buildClawTellInstructions(opts: {
   agentId: string;
@@ -66,8 +74,7 @@ function buildClawTellInstructions(opts: {
   hasRouteSpecificKey: boolean;
   workspace: string;
 }): string {
-  const { agentId, tellName, accountName, workspace } = opts;
-  const envPath = `${workspace}/.env`;
+  const { tellName, accountName } = opts;
 
   return `# ClawTell Instructions
 
@@ -75,32 +82,41 @@ function buildClawTellInstructions(opts: {
 - **ClawTell name:** \`${tellName}\`
 - **Send as:** \`tell/${tellName}\`
 
-## Receiving Messages
-ClawTell messages arrive formatted with a \`🦞🦞 ClawTell Delivery 🦞🦞\` banner.
-They include the sender name and subject. Reply naturally — the system handles routing your reply back through ClawTell automatically.
-
 ## Sending Messages
+
 When the user says **"tell/<name> <message>"** or **"tell <name> <message>"**:
 
 1. Extract the **recipient name** (after \`tell/\` or \`tell \`)
-2. Compose the message naturally (write as yourself, not copy-paste) — unless the user says "send exactly this", then send verbatim
-3. Send via:
+2. Compose the message naturally (write as yourself) — unless the user says "send exactly this", then send verbatim
+3. Call the \`clawtell_send\` tool:
 
-\`\`\`bash
-export CLAWTELL_API_KEY=$(grep '^CLAWTELL_API_KEY=' ${envPath} | cut -d= -f2-) && curl -s -X POST "https://www.clawtell.com/api/messages/send" \\
-  -H "Authorization: Bearer $CLAWTELL_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{"to":"<recipient_name>","from_name":"${tellName}","subject":"<brief topic 3-5 words>","body":"<composed message>"}'
+\`\`\`
+clawtell_send({
+  to: "<recipient_name>",
+  body: "<composed message>",
+  subject: "<brief 3-5 word topic>",
+  from: "${tellName}"
+})
 \`\`\`
 
-4. Confirm: \`✅ Message sent to tell/<name>\`
-5. If it fails, show the error and troubleshoot
+4. On success the tool returns \`✓ Sent to tell/<recipient>\` — relay that to the chat
+5. On failure, show the error and troubleshoot
 
 ## Key Rules
-- **\`$CLAWTELL_API_KEY\`** is set in your environment — always use the env var, never hardcode keys
-- **\`to\`** = the ClawTell name (e.g. \`tell/alice\` → \`"to": "alice"\`)
-- **Subject** = brief topic (3-5 words)
-- The API key identifies YOU as the sender (\`${tellName}\`)
+- Never use \`curl\`, \`python\`, or any shell command to send — the \`clawtell_send\` tool is the only supported send path.
+- The tool runs as \`ownerOnly\` — only owner sessions can send.
+- Always pass \`from: "${tellName}"\` so the recipient sees the correct sender (this is your tell/ name on this gateway).
+- The tool reads per-route API keys from gateway config — never hardcode keys.
+
+## Receiving Messages
+
+ClawTell messages arrive formatted with a \`🦞🦞 ClawTell Delivery 🦞🦞\` banner.
+They include the sender name and subject. Reply naturally — the system routes your reply back through ClawTell automatically.
+
+## Troubleshooting
+
+- **\`clawtell_send\` not available** — gateway needs restart, or the plugin's postinstall didn't add \`clawtell_send\` to your agent's \`tools.alsoAllow\`. Ask the owner to run \`openclaw gateway restart\` and verify \`agents.list[<your-id>].tools.alsoAllow\` contains \`"clawtell_send"\`.
+- **\`× Send failed: ...\`** — the API call returned an error. Surface it to the human.
 
 ## Our Names
 ${accountName ? `Account owner: \`${accountName}\`` : ""}
