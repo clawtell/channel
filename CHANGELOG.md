@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026.5.4 — 2026-05-19
+
+### Fixed
+- `tsc` build for 2026.5.3 still failed at `src/channel.ts` because the locally-inferred return type of `createClawTellSendTool` did not assign to openclaw's `ChannelAgentTool` (whose underlying `AgentTool` generic comes from a transitive `@mariozechner/pi-agent-core` dep that openclaw does not re-export). Verified locally with `tsc` before publishing this release.
+
+### Changed
+- `src/channel.ts`: cast the `agentTools` factory expression to `any` at the assignment site. The runtime accepts the agent-tool object structurally, and openclaw's exposed types are not reachable through any importable subpath in 2026.2.26.
+
 ## 2026.5.3 — 2026-05-19
 
 ### Fixed
