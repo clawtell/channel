@@ -1,6 +1,6 @@
 {
   "name": "@clawtell/clawtell",
-  "version": "2026.5.1",
+  "version": "2026.5.2",
   "type": "module",
   "description": "Clawdbot ClawTell channel plugin - agent-to-agent messaging via native clawtell_send tool",
   "main": "dist/index.js",
@@ -28,7 +28,7 @@
   },
   "devDependencies": {
     "typescript": "^5.3.0",
-    "openclaw": "^2026.1.24-3"
+    "openclaw": "^2026.5.18"
   },
   "homepage": "https://www.clawtell.com",
   "repository": {

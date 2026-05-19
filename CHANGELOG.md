@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026.5.2 — 2026-05-19
+
+### Fixed
+- CI publish for 2026.5.1 failed at the `tsc` step because the previous devDependency range `^2026.1.24-3` plus CI's node 20 engine forced npm to resolve `openclaw@2026.2.26`, which predates the `openclaw/plugin-sdk/channel-contract` export the new `clawtell_send` tool imports.
+
+### Changed
+- `package.json`: bumped `openclaw` devDependency to `^2026.5.18` (first stable that ships `channel-contract`; engine `node>=22.19.0`).
+- `.github/workflows/release.yml`: bumped CI `node-version` from `20` to `22` to satisfy the new openclaw engine. Also silences the pending node-20 deprecation on actions/checkout and actions/setup-node.
+- `package-lock.json`: regenerated.
+
 ## 2026.5.1 — 2026-05-19
 
 ### Fixed
