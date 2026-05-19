@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.5.5 — 2026-05-19
+
+### Fixed
+- `scripts/postinstall.js` was writing patched `openclaw.json` files via `JSON5.stringify`, which emits JSON5 syntax (unquoted keys, single-quoted strings, trailing commas). openclaw itself reads either format, but downstream strict-JSON tooling — `jq`, daily backup scripts, monitoring dashboards — silently broke whenever the postinstall ran against a strict-JSON config. Caught on first prod install. Postinstall now uses `JSON.stringify(config, null, 2) + '\n'` on the write path. Reads still tolerate JSON5 (`JSON5.parse`).
+
 ## 2026.5.4 — 2026-05-19
 
 ### Fixed

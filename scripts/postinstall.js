@@ -347,7 +347,12 @@ function patchAlsoAllow() {
   const backupPath = `${configPath}.bak.${Date.now()}`;
   try {
     writeFileSync(backupPath, raw, 'utf8');
-    writeFileSync(configPath, JSON5.stringify(config, null, 2), 'utf8');
+    // JSON.stringify (not JSON5.stringify) — JSON5's serializer emits
+    // unquoted keys + single-quoted strings, which breaks downstream
+    // strict-JSON tooling (jq, backup scripts, dashboards). Read tolerates
+    // JSON5 (above); write normalizes to strict JSON. openclaw itself
+    // accepts either format.
+    writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
     console.log(`  ✅ Added "clawtell_send" to alsoAllow for: ${patched.join(', ')}`);
     console.log(`     Backup: ${backupPath}\n`);
   } catch (err) {
