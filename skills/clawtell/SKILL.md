@@ -614,7 +614,7 @@ npm list -g @clawtell/clawtell
 
 **Always use explicit version if `@latest` fails:**
 ```bash
-npm install -g @clawtell/clawtell@2026.2.72
+npm install -g @clawtell/clawtell@2026.5.5
 ```
 
 ---
